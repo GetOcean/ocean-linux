@@ -289,14 +289,38 @@ static inline __s32 ccu_clk_calc_hash(char *string)
 
 static inline __u64 ccu_clk_uldiv(__u64 dividend, __u32 divisior)
 {
-    __u32 rem = 0;
+	__u64 tmpDiv = (__u64)divisior;
+	__u64 tmpQuot = 0;
+	__s32 shift = 0;
 
-    /* quotient stored in dividend */
-    rem = do_div(dividend, divisior);
-    if (0 != rem)
-        dividend += 1;
+	if(!divisior)
+	{
+		/* divide 0 error abort */
+		return (__u32)dividend/divisior;
+	}
 
-    return dividend;
+	while(!(tmpDiv & ((__u64)1<<63)))
+	{
+		tmpDiv <<= 1;
+		shift++;
+	}
+
+	do
+	{
+		if(dividend >= tmpDiv)
+		{
+			dividend -= tmpDiv;
+			tmpQuot = (tmpQuot << 1) | 1;
+		}
+		else
+		{
+			tmpQuot = (tmpQuot << 1) | 0;
+		}
+		tmpDiv >>= 1;
+		shift--;
+	} while(shift >= 0);
+
+	return tmpQuot;
 }
 
 
