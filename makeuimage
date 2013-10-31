@@ -1,0 +1,28 @@
+kernel_release=${1:-sun4i_default}
+mkdir -p output/$kernel_release
+if [ $# -lt 2 -a ! -f output/$kernel_release/.config ]
+then
+	make O=output/$kernel_release ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- sun4i_defconfig
+fi
+
+if [ $# -gt 1 ]
+then
+	shift
+	make O=output/$kernel_release ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- $*
+	exit
+fi
+
+make O=output/$kernel_release ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j4 uImage
+mkdir -p output/$kernel_release/output/boot
+
+echo copy output/$kernel_release/arch/arm/boot/uImage to output/$kernel_release/output/boot/uImage.$kernel_release
+cp -a output/$kernel_release/arch/arm/boot/uImage output/$kernel_release/output/boot/uImage.$kernel_release
+cp -a output/$kernel_release/.config output/$kernel_release/output/boot/config.$kernel_release
+
+echo -n "make modules? (Y/n)"
+read yn
+if [ "$yn" != n ]
+then
+	make O=output/$kernel_release ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j4 modules
+	make O=output/$kernel_release ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j4 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=output modules_install
+fi
