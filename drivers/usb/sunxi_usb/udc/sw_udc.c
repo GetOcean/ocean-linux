@@ -3320,6 +3320,8 @@ int sw_usb_device_enable(void)
 	if (!is_udc_enable)
 		sw_udc_set_pullup(udc, 1);
 
+	kobject_uevent(&pdev->dev.kobj, KOBJ_ONLINE);
+
 	DMSG_INFO_UDC("sw_usb_device_enable end\n");
 
     return 0;
@@ -3381,6 +3383,8 @@ int sw_usb_device_disable(void)
 	spin_unlock_irqrestore(&udc->lock, flags);
 
 	DMSG_INFO_UDC("sw_usb_device_disable end\n");
+
+	kobject_uevent(&pdev->dev.kobj, KOBJ_OFFLINE);
 
 	return 0;
 }
