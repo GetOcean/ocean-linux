@@ -48,6 +48,7 @@
 #include <linux/delay.h>
 #include <linux/mutex.h>
 #include <linux/string_helpers.h>
+#include <linux/leds.h>
 #include <linux/async.h>
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
@@ -1484,6 +1485,8 @@ static int sd_done(struct scsi_cmnd *SCpnt)
 	int sense_valid = 0;
 	int sense_deferred = 0;
 	unsigned char op = SCpnt->cmnd[0];
+
+	ledtrig_disk_activity();
 
 	if ((SCpnt->request->cmd_flags & REQ_DISCARD) && !result)
 		scsi_set_resid(SCpnt, 0);
