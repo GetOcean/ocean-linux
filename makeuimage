@@ -7,8 +7,8 @@
 #	the first time and no configuration has been set, sun4i_defconfig is used.
 #	
 #	Examples:
-#		makeuimage 3.4.61-sun7i+ sun7i_defconfig	# first time setup of output/3.4.43-sun7i+
-#		makeuimage 3.4.61-sun7i+ menuconfig			# run menuconfig on output/3.4.43-sun7i+
+#		makeuimage 3.4.61-sun7i+ sun7i_defconfig	# first time setup of output/3.4.61-sun7i+
+#		makeuimage 3.4.61-sun7i+ menuconfig			# run menuconfig on output/3.4.61-sun7i+
 #		makeuimage 3.4.61-sun7i+ 					# build kernel and modules
 
 kernel_release=${1:-sun4i_default}
