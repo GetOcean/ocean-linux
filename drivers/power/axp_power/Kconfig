@@ -38,7 +38,7 @@ config AXP_CHGCHANGE
 
 config AXP_HWMON
 	depends on HWMON
-	bool "Enable the internal thermal monitoring support of AXP20X chips"
+	tristate "Enable the internal thermal monitoring support of AXP20X chips"
 	default y
 
 endif # !AW_AXP
