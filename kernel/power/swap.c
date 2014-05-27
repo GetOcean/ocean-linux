@@ -666,6 +666,12 @@ static int save_image_lzo(struct swap_map_handle *handle,
 	 */
 	handle->reqd_free_pages = reqd_free_pages();
 
+	/*
+	 * Adjust the number of required free pages after all allocations have
+	 * been done. We don't want to run out of pages when writing.
+	 */
+	handle->reqd_free_pages = reqd_free_pages();
+
 	printk(KERN_INFO
 		"PM: Using %u thread(s) for compression.\n"
 		"PM: Compressing and saving image data (%u pages) ...     ",
