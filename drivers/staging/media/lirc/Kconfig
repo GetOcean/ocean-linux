@@ -83,5 +83,13 @@ config LIRC_GPIO
 	  Driver for GPIOLIB enabled gpio chip. Module setup for and tested
 	  on Allwinner A10 Gpio SOC.
 	  change/redefine LIRC_GPIO_ID_STRING to the correct gpiochip label
+	  
+config LIRC_SUNXI_RAW
+	tristate "LIRC for sunxi CIR interface"
+	depends on LIRC
+	help
+	  Driver for Allwinner's native CIR interface, passing
+	  data (almost) unfiltered to LIRC device
+	
 
 endif

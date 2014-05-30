@@ -221,6 +221,8 @@ extern int fib_lookup(struct net *n, struct flowi4 *flp, struct fib_result *res)
 extern struct fib_table *fib_new_table(struct net *net, u32 id);
 extern struct fib_table *fib_get_table(struct net *net, u32 id);
 
+extern int fib_result_table(struct fib_result *res);
+
 #endif /* CONFIG_IP_MULTIPLE_TABLES */
 
 /* Exported by fib_frontend.c */
@@ -228,8 +230,9 @@ extern const struct nla_policy rtm_ipv4_policy[];
 extern void		ip_fib_init(void);
 extern int fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst,
 			       u8 tos, int oif, struct net_device *dev,
-			       __be32 *spec_dst, u32 *itag);
-extern void fib_select_default(struct fib_result *res);
+			       __be32 *spec_dst, u32 *itag, int our);
+extern void fib_select_default(const struct flowi4 *flp,
+			       struct fib_result *res);
 
 /* Exported by fib_semantics.c */
 extern int ip_fib_check_default(__be32 gw, struct net_device *dev);
@@ -237,7 +240,8 @@ extern int fib_sync_down_dev(struct net_device *dev, int force);
 extern int fib_sync_down_addr(struct net *net, __be32 local);
 extern void fib_update_nh_saddrs(struct net_device *dev);
 extern int fib_sync_up(struct net_device *dev);
-extern void fib_select_multipath(struct fib_result *res);
+extern void fib_select_multipath(const struct flowi4 *flp,
+				 struct fib_result *res);
 
 /* Exported by fib_trie.c */
 extern void fib_trie_init(void);
@@ -279,5 +283,7 @@ static inline void fib_proc_exit(struct net *net)
 {
 }
 #endif
+
+extern rwlock_t fib_nhflags_lock;
 
 #endif  /* _NET_FIB_H */

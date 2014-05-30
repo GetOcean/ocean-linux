@@ -54,6 +54,11 @@ u32 fib_rules_tclass(const struct fib_result *res)
 }
 #endif
 
+int fib_result_table(struct fib_result *res)
+{
+	return res->r->table;
+}
+
 int fib_lookup(struct net *net, struct flowi4 *flp, struct fib_result *res)
 {
 	struct fib_lookup_arg arg = {

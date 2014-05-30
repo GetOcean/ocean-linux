@@ -47,6 +47,8 @@
 
 #ifndef CONFIG_IP_MULTIPLE_TABLES
 
+#define FIB_RES_TABLE(r) (RT_TABLE_MAIN)
+
 static int __net_init fib4_rules_init(struct net *net)
 {
 	struct fib_table *local_table, *main_table;
@@ -70,6 +72,8 @@ fail:
 	return -ENOMEM;
 }
 #else
+
+#define FIB_RES_TABLE(r) (fib_result_table(r))
 
 struct fib_table *fib_new_table(struct net *net, u32 id)
 {
@@ -190,14 +194,20 @@ EXPORT_SYMBOL(inet_dev_addr_type);
  */
 int fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst, u8 tos,
 			int oif, struct net_device *dev, __be32 *spec_dst,
-			u32 *itag)
+			u32 *itag, int our)
 {
 	struct in_device *in_dev;
 	struct flowi4 fl4;
 	struct fib_result res;
+	int table;
+	unsigned char prefixlen;
+	unsigned char scope;
 	int no_addr, rpf, accept_local;
 	bool dev_match;
+	unsigned rpf_mask = 0;
 	int ret;
+	int fwdsh = 0;
+	int loop = 0;
 	struct net *net;
 
 	fl4.flowi4_oif = 0;
@@ -206,6 +216,7 @@ int fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst, u8 tos,
 	fl4.saddr = dst;
 	fl4.flowi4_tos = tos;
 	fl4.flowi4_scope = RT_SCOPE_UNIVERSE;
+	fl4.fl4_gw = 0;
 
 	no_addr = rpf = accept_local = 0;
 	in_dev = __in_dev_get_rcu(dev);
@@ -217,6 +228,9 @@ int fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst, u8 tos,
 
 		accept_local = IN_DEV_ACCEPT_LOCAL(in_dev);
 		fl4.flowi4_mark = IN_DEV_SRC_VMARK(in_dev) ? skb->mark : 0;
+		fwdsh = IN_DEV_FORWARD_SHARED(in_dev);
+		rpf_mask = IN_DEV_RPFILTER_MASK(in_dev);
+		loop = IN_DEV_LOOP(in_dev);
 	}
 
 	if (in_dev == NULL)
@@ -225,6 +239,17 @@ int fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst, u8 tos,
 	net = dev_net(dev);
 	if (fib_lookup(net, &fl4, &res))
 		goto last_resort;
+	if (loop && res.type == RTN_LOCAL) {
+		*spec_dst = FIB_RES_PREFSRC(net, res);
+		return 0;
+	}
+	if (fwdsh) {
+		fwdsh = (res.type == RTN_LOCAL && !our);
+		if (fwdsh) {
+			rpf = 0;
+			accept_local = 1;
+		}
+	}
 	if (res.type != RTN_UNICAST) {
 		if (res.type != RTN_LOCAL || !accept_local)
 			goto e_inval;
@@ -250,19 +275,37 @@ int fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst, u8 tos,
 		ret = FIB_RES_NH(res).nh_scope >= RT_SCOPE_HOST;
 		return ret;
 	}
+	if (rpf_mask && rpf) {
+		int omi = 0;
+
+		in_dev = __in_dev_get_rcu(FIB_RES_DEV(res));
+		if (in_dev)
+			omi = IN_DEV_MEDIUM_ID(in_dev);
+		if (omi >= 1 && omi <= 31 && ((1 << omi) & rpf_mask))
+			rpf = 0;
+	}
 	if (no_addr)
 		goto last_resort;
-	if (rpf == 1)
-		goto e_rpf;
+	table = FIB_RES_TABLE(&res);
+	prefixlen = res.prefixlen;
+	scope = res.scope;
 	fl4.flowi4_oif = dev->ifindex;
+	if (fwdsh)
+		fl4.flowi4_iif = net->loopback_dev->ifindex;
 
 	ret = 0;
 	if (fib_lookup(net, &fl4, &res) == 0) {
-		if (res.type == RTN_UNICAST) {
+		if (res.type == RTN_UNICAST &&
+		    ((table == FIB_RES_TABLE(&res) &&
+		      res.prefixlen >= prefixlen && res.scope >= scope) ||
+		     !rpf)) {
 			*spec_dst = FIB_RES_PREFSRC(net, res);
 			ret = FIB_RES_NH(res).nh_scope >= RT_SCOPE_HOST;
+			return ret;
 		}
 	}
+	if (rpf == 1)
+		goto e_rpf;
 	return ret;
 
 last_resort:
@@ -966,9 +1009,7 @@ static int fib_inetaddr_event(struct notifier_block *this, unsigned long event, 
 	switch (event) {
 	case NETDEV_UP:
 		fib_add_ifaddr(ifa);
-#ifdef CONFIG_IP_ROUTE_MULTIPATH
 		fib_sync_up(dev);
-#endif
 		atomic_inc(&net->ipv4.dev_addr_genid);
 		rt_cache_flush(dev_net(dev), -1);
 		break;
@@ -1007,9 +1048,7 @@ static int fib_netdev_event(struct notifier_block *this, unsigned long event, vo
 		for_ifa(in_dev) {
 			fib_add_ifaddr(ifa);
 		} endfor_ifa(in_dev);
-#ifdef CONFIG_IP_ROUTE_MULTIPATH
 		fib_sync_up(dev);
-#endif
 		atomic_inc(&net->ipv4.dev_addr_genid);
 		rt_cache_flush(dev_net(dev), -1);
 		break;

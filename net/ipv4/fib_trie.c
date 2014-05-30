@@ -1278,6 +1278,7 @@ int fib_table_insert(struct fib_table *tb, struct fib_config *cfg)
 			fi_drop = fa->fa_info;
 			new_fa->fa_tos = fa->fa_tos;
 			new_fa->fa_info = fi;
+			new_fa->fa_last_dflt = -1;
 			new_fa->fa_type = cfg->fc_type;
 			state = fa->fa_state;
 			new_fa->fa_state = state & ~FA_S_ACCESSED;
@@ -1316,6 +1317,7 @@ int fib_table_insert(struct fib_table *tb, struct fib_config *cfg)
 	new_fa->fa_tos = tos;
 	new_fa->fa_type = cfg->fc_type;
 	new_fa->fa_state = 0;
+	new_fa->fa_last_dflt = -1;
 	/*
 	 * Insert new entry to the list.
 	 */
@@ -1389,6 +1391,9 @@ static int check_leaf(struct fib_table *tb, struct trie *t, struct leaf *l,
 				if (nh->nh_flags & RTNH_F_DEAD)
 					continue;
 				if (flp->flowi4_oif && flp->flowi4_oif != nh->nh_oif)
+					continue;
+				if (flp->fl4_gw && flp->fl4_gw != nh->nh_gw &&
+				    nh->nh_gw && nh->nh_scope == RT_SCOPE_LINK)
 					continue;
 
 #ifdef CONFIG_IP_FIB_TRIE_STATS

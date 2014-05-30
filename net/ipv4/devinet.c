@@ -1003,7 +1003,8 @@ no_in_dev:
 			continue;
 
 		for_primary_ifa(in_dev) {
-			if (ifa->ifa_scope != RT_SCOPE_LINK &&
+			if (!IN_DEV_HIDDEN(in_dev) &&
+			    ifa->ifa_scope != RT_SCOPE_LINK &&
 			    ifa->ifa_scope <= scope) {
 				addr = ifa->ifa_local;
 				goto out_unlock;
@@ -1607,14 +1608,18 @@ static struct devinet_sysctl_table {
 		DEVINET_SYSCTL_RW_ENTRY(SEND_REDIRECTS, "send_redirects"),
 		DEVINET_SYSCTL_RW_ENTRY(ACCEPT_SOURCE_ROUTE,
 					"accept_source_route"),
+		DEVINET_SYSCTL_RW_ENTRY(FORWARD_SHARED, "forward_shared"),
 		DEVINET_SYSCTL_RW_ENTRY(ACCEPT_LOCAL, "accept_local"),
 		DEVINET_SYSCTL_RW_ENTRY(SRC_VMARK, "src_valid_mark"),
 		DEVINET_SYSCTL_RW_ENTRY(PROXY_ARP, "proxy_arp"),
 		DEVINET_SYSCTL_RW_ENTRY(MEDIUM_ID, "medium_id"),
+		DEVINET_SYSCTL_RW_ENTRY(RP_FILTER_MASK, "rp_filter_mask"),
 		DEVINET_SYSCTL_RW_ENTRY(BOOTP_RELAY, "bootp_relay"),
 		DEVINET_SYSCTL_RW_ENTRY(LOG_MARTIANS, "log_martians"),
 		DEVINET_SYSCTL_RW_ENTRY(TAG, "tag"),
+		DEVINET_SYSCTL_RW_ENTRY(HIDDEN, "hidden"),
 		DEVINET_SYSCTL_RW_ENTRY(ARPFILTER, "arp_filter"),
+		DEVINET_SYSCTL_RW_ENTRY(LOOP, "loop"),
 		DEVINET_SYSCTL_RW_ENTRY(ARP_ANNOUNCE, "arp_announce"),
 		DEVINET_SYSCTL_RW_ENTRY(ARP_IGNORE, "arp_ignore"),
 		DEVINET_SYSCTL_RW_ENTRY(ARP_ACCEPT, "arp_accept"),
