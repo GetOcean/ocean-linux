@@ -120,6 +120,13 @@ enum {
 	RTM_SETDCB,
 #define RTM_SETDCB RTM_SETDCB
 
+	RTM_NEWARPRULE	= 80,
+#define	RTM_NEWARPRULE	RTM_NEWARPRULE
+	RTM_DELARPRULE,
+#define	RTM_DELARPRULE	RTM_DELARPRULE
+	RTM_GETARPRULE,
+#define	RTM_GETARPRULE	RTM_GETARPRULE
+
 	__RTM_MAX,
 #define RTM_MAX		(((__RTM_MAX + 3) & ~3) - 1)
 };
@@ -312,6 +319,8 @@ struct rtnexthop {
 #define RTNH_F_DEAD		1	/* Nexthop is dead (used by multipath)	*/
 #define RTNH_F_PERVASIVE	2	/* Do recursive gateway lookup	*/
 #define RTNH_F_ONLINK		4	/* Gateway is forced on link	*/
+#define RTNH_F_SUSPECT		8	/* We don't know the real state	*/
+#define RTNH_F_BADSTATE		(RTNH_F_DEAD | RTNH_F_SUSPECT)
 
 /* Macros to handle hexthops */
 
@@ -516,6 +525,54 @@ enum {
 
 #define NDUSEROPT_MAX	(__NDUSEROPT_MAX - 1)
 
+/******************************************************************************
+ *		Definitions used in ARP tables administration
+ ****/
+
+#define ARPA_TABLE_INPUT	0
+#define ARPA_TABLE_OUTPUT	1
+#define ARPA_TABLE_FORWARD	2
+#define ARPA_TABLE_ALL		-1
+
+#define ARPM_F_PREFSRC		0x0001
+#define ARPM_F_WILDIIF		0x0002
+#define ARPM_F_WILDOIF		0x0004
+#define ARPM_F_BROADCAST	0x0008
+#define ARPM_F_UNICAST		0x0010
+
+struct arpmsg
+{
+	unsigned char		arpm_family;
+	unsigned char		arpm_table;
+	unsigned char		arpm_action;
+	unsigned char		arpm_from_len;
+	unsigned char		arpm_to_len;
+	unsigned char		arpm__pad1;
+	unsigned short		arpm__pad2;
+	unsigned		arpm_pref;
+	unsigned		arpm_flags;
+};
+
+enum
+{
+	ARPA_UNSPEC,
+	ARPA_FROM,			/* FROM IP prefix	*/
+	ARPA_TO,			/* TO IP prefix		*/
+	ARPA_LLFROM,			/* FROM LL prefix	*/
+	ARPA_LLTO,			/* TO LL prefix		*/
+	ARPA_LLSRC,			/* New SRC lladdr	*/
+	ARPA_LLDST,			/* New DST lladdr	*/
+	ARPA_IIF,			/* In interface prefix	*/
+	ARPA_OIF,			/* Out interface prefix	*/
+	ARPA_SRC,			/* New IP SRC		*/
+	ARPA_DST,			/* New IP DST, not used	*/
+	ARPA_PACKETS,			/* Packets		*/
+};
+
+#define ARPA_MAX	ARPA_PACKETS
+
+#define ARPA_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct arpmsg))))
+
 #ifndef __KERNEL__
 /* RTnetlink multicast groups - backwards compatibility for userspace */
 #define RTMGRP_LINK		1
@@ -535,6 +592,8 @@ enum {
 
 #define RTMGRP_DECnet_IFADDR    0x1000
 #define RTMGRP_DECnet_ROUTE     0x4000
+
+#define RTMGRP_ARP		0x00010000
 
 #define RTMGRP_IPV6_PREFIX	0x20000
 #endif
@@ -587,6 +646,8 @@ enum rtnetlink_groups {
 #define RTNLGRP_PHONET_ROUTE	RTNLGRP_PHONET_ROUTE
 	RTNLGRP_DCB,
 #define RTNLGRP_DCB		RTNLGRP_DCB
+	RTNLGRP_ARP,
+#define RTNLGRP_ARP		RTNLGRP_ARP
 	__RTNLGRP_MAX
 };
 #define RTNLGRP_MAX	(__RTNLGRP_MAX - 1)

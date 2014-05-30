@@ -32,6 +32,10 @@ enum
 	IPV4_DEVCONF_FORCE_IGMP_VERSION,
 	IPV4_DEVCONF_ARP_ANNOUNCE,
 	IPV4_DEVCONF_ARP_IGNORE,
+	IPV4_DEVCONF_HIDDEN,
+	IPV4_DEVCONF_FORWARD_SHARED,
+	IPV4_DEVCONF_RP_FILTER_MASK,
+	IPV4_DEVCONF_LOOP,
 	IPV4_DEVCONF_PROMOTE_SECONDARIES,
 	IPV4_DEVCONF_ARP_ACCEPT,
 	IPV4_DEVCONF_ARP_NOTIFY,
@@ -122,12 +126,14 @@ static inline void ipv4_devconf_setall(struct in_device *in_dev)
 #define IN_DEV_LOG_MARTIANS(in_dev)	IN_DEV_ORCONF((in_dev), LOG_MARTIANS)
 #define IN_DEV_PROXY_ARP(in_dev)	IN_DEV_ORCONF((in_dev), PROXY_ARP)
 #define IN_DEV_PROXY_ARP_PVLAN(in_dev)	IN_DEV_CONF_GET(in_dev, PROXY_ARP_PVLAN)
+#define IN_DEV_HIDDEN(in_dev)		IN_DEV_ANDCONF((in_dev), HIDDEN)
 #define IN_DEV_SHARED_MEDIA(in_dev)	IN_DEV_ORCONF((in_dev), SHARED_MEDIA)
 #define IN_DEV_TX_REDIRECTS(in_dev)	IN_DEV_ORCONF((in_dev), SEND_REDIRECTS)
 #define IN_DEV_SEC_REDIRECTS(in_dev)	IN_DEV_ORCONF((in_dev), \
 						      SECURE_REDIRECTS)
 #define IN_DEV_IDTAG(in_dev)		IN_DEV_CONF_GET(in_dev, TAG)
 #define IN_DEV_MEDIUM_ID(in_dev)	IN_DEV_CONF_GET(in_dev, MEDIUM_ID)
+#define IN_DEV_RPFILTER_MASK(in_dev)	IN_DEV_CONF_GET(in_dev, RP_FILTER_MASK)
 #define IN_DEV_PROMOTE_SECONDARIES(in_dev) \
 					IN_DEV_ORCONF((in_dev), \
 						      PROMOTE_SECONDARIES)
@@ -138,6 +144,8 @@ static inline void ipv4_devconf_setall(struct in_device *in_dev)
 	 || (!IN_DEV_FORWARD(in_dev) && \
 	  IN_DEV_ORCONF((in_dev), ACCEPT_REDIRECTS)))
 
+#define IN_DEV_LOOP(in_dev)		IN_DEV_CONF_GET(in_dev, LOOP)
+#define IN_DEV_FORWARD_SHARED(in_dev)	IN_DEV_ANDCONF((in_dev), FORWARD_SHARED)
 #define IN_DEV_ARPFILTER(in_dev)	IN_DEV_ORCONF((in_dev), ARPFILTER)
 #define IN_DEV_ARP_ACCEPT(in_dev)	IN_DEV_ORCONF((in_dev), ARP_ACCEPT)
 #define IN_DEV_ARP_ANNOUNCE(in_dev)	IN_DEV_MAXCONF((in_dev), ARP_ANNOUNCE)

@@ -738,6 +738,8 @@ static inline int compare_keys(struct rtable *rt1, struct rtable *rt2)
 	return (((__force u32)rt1->rt_key_dst ^ (__force u32)rt2->rt_key_dst) |
 		((__force u32)rt1->rt_key_src ^ (__force u32)rt2->rt_key_src) |
 		(rt1->rt_mark ^ rt2->rt_mark) |
+		((__force u32)rt1->rt_key_lsrc ^ (__force u32)rt2->rt_key_lsrc) |
+		((__force u32)rt1->rt_key_gw ^ (__force u32)rt2->rt_key_gw) |
 		(rt1->rt_key_tos ^ rt2->rt_key_tos) |
 		(rt1->rt_route_iif ^ rt2->rt_route_iif) |
 		(rt1->rt_oif ^ rt2->rt_oif)) == 0;
@@ -1419,6 +1421,8 @@ static void check_peer_redir(struct dst_entry *dst, struct inet_peer *peer)
 		rt->rt_gateway = orig_gw;
 		return;
 	}
+	if (rt->rt_key_gw)
+		rt->rt_key_gw = rt->rt_gateway;
 	old_n = xchg(&rt->dst._neighbour, n);
 	if (old_n)
 		neigh_release(old_n);
@@ -1962,6 +1966,8 @@ static void rt_init_metrics(struct rtable *rt, const struct flowi4 *fl4,
 		if (peer->redirect_learned.a4 &&
 		    peer->redirect_learned.a4 != rt->rt_gateway) {
 			rt->rt_gateway = peer->redirect_learned.a4;
+			if (rt->rt_key_gw)
+				rt->rt_key_gw = rt->rt_gateway;
 			rt->rt_flags |= RTCF_REDIRECTED;
 		}
 	} else {
@@ -2037,7 +2043,7 @@ static int ip_route_input_mc(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		spec_dst = inet_select_addr(dev, 0, RT_SCOPE_LINK);
 	} else {
 		err = fib_validate_source(skb, saddr, 0, tos, 0, dev, &spec_dst,
-					  &itag);
+					  &itag, our);
 		if (err < 0)
 			goto e_err;
 	}
@@ -2053,6 +2059,8 @@ static int ip_route_input_mc(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 
 	rth->rt_key_dst	= daddr;
 	rth->rt_key_src	= saddr;
+	rth->rt_key_lsrc = 0;
+	rth->rt_key_gw	= daddr;
 	rth->rt_genid	= rt_genid(dev_net(dev));
 	rth->rt_flags	= RTCF_MULTICAST;
 	rth->rt_type	= RTN_MULTICAST;
@@ -2122,7 +2130,7 @@ static int __mkroute_input(struct sk_buff *skb,
 			   const struct fib_result *res,
 			   struct in_device *in_dev,
 			   __be32 daddr, __be32 saddr, u32 tos,
-			   struct rtable **result)
+			   __be32 lsrc, struct rtable **result)
 {
 	struct rtable *rth;
 	int err;
@@ -2141,7 +2149,7 @@ static int __mkroute_input(struct sk_buff *skb,
 
 
 	err = fib_validate_source(skb, saddr, daddr, tos, FIB_RES_OIF(*res),
-				  in_dev->dev, &spec_dst, &itag);
+				  in_dev->dev, &spec_dst, &itag, 0);
 	if (err < 0) {
 		ip_handle_martian_source(in_dev->dev, in_dev, skb, daddr,
 					 saddr);
@@ -2153,6 +2161,7 @@ static int __mkroute_input(struct sk_buff *skb,
 		flags |= RTCF_DIRECTSRC;
 
 	if (out_dev == in_dev && err &&
+	    !lsrc &&
 	    (IN_DEV_SHARED_MEDIA(out_dev) ||
 	     inet_addr_onlink(out_dev, saddr, FIB_RES_GW(*res))))
 		flags |= RTCF_DOREDIRECT;
@@ -2182,6 +2191,8 @@ static int __mkroute_input(struct sk_buff *skb,
 
 	rth->rt_key_dst	= daddr;
 	rth->rt_key_src	= saddr;
+	rth->rt_key_lsrc = lsrc;
+	rth->rt_key_gw	= 0;
 	rth->rt_genid = rt_genid(dev_net(rth->dst.dev));
 	rth->rt_flags = flags;
 	rth->rt_type = res->type;
@@ -2211,21 +2222,23 @@ static int __mkroute_input(struct sk_buff *skb,
 
 static int ip_mkroute_input(struct sk_buff *skb,
 			    struct fib_result *res,
+			    struct net *net,
 			    const struct flowi4 *fl4,
 			    struct in_device *in_dev,
-			    __be32 daddr, __be32 saddr, u32 tos)
+			    __be32 daddr, __be32 saddr, u32 tos, __be32 lsrc)
 {
 	struct rtable* rth = NULL;
 	int err;
 	unsigned hash;
 
+	fib_select_default(fl4, res);
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	if (res->fi && res->fi->fib_nhs > 1)
-		fib_select_multipath(res);
+		fib_select_multipath(fl4, res);
 #endif
 
 	/* create a routing cache entry */
-	err = __mkroute_input(skb, res, in_dev, daddr, saddr, tos, &rth);
+	err = __mkroute_input(skb, res, in_dev, daddr, saddr, tos, lsrc, &rth);
 	if (err)
 		return err;
 
@@ -2250,7 +2263,7 @@ static int ip_mkroute_input(struct sk_buff *skb,
  */
 
 static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
-			       u8 tos, struct net_device *dev)
+			       u8 tos, struct net_device *dev, __be32 lsrc)
 {
 	struct fib_result res;
 	struct in_device *in_dev = __in_dev_get_rcu(dev);
@@ -2288,22 +2301,32 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	if (ipv4_is_zeronet(daddr) || ipv4_is_loopback(daddr))
 		goto martian_destination;
 
+	if (lsrc) {
+		if (ipv4_is_multicast(lsrc) || ipv4_is_lbcast(lsrc) ||
+		    ipv4_is_zeronet(lsrc) || ipv4_is_loopback(lsrc))
+			goto e_inval;
+	}
+
 	/*
 	 *	Now we are ready to route packet.
 	 */
 	fl4.flowi4_oif = 0;
-	fl4.flowi4_iif = dev->ifindex;
+	fl4.flowi4_iif = lsrc ?
+			 dev_net(dev)->loopback_dev->ifindex : dev->ifindex;
 	fl4.flowi4_mark = skb->mark;
 	fl4.flowi4_tos = tos;
 	fl4.flowi4_scope = RT_SCOPE_UNIVERSE;
 	fl4.daddr = daddr;
-	fl4.saddr = saddr;
+	fl4.saddr = lsrc? : saddr;
+	fl4.fl4_gw = 0;
 	err = fib_lookup(net, &fl4, &res);
 	if (err != 0) {
 		if (!IN_DEV_FORWARD(in_dev))
 			goto e_hostunreach;
 		goto no_route;
 	}
+	fl4.flowi4_iif = dev->ifindex;
+	fl4.saddr = saddr;
 
 	RT_CACHE_STAT_INC(in_slow_tot);
 
@@ -2313,7 +2336,7 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	if (res.type == RTN_LOCAL) {
 		err = fib_validate_source(skb, saddr, daddr, tos,
 					  net->loopback_dev->ifindex,
-					  dev, &spec_dst, &itag);
+					  dev, &spec_dst, &itag, 1);
 		if (err < 0)
 			goto martian_source_keep_err;
 		if (err)
@@ -2327,18 +2350,21 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	if (res.type != RTN_UNICAST)
 		goto martian_destination;
 
-	err = ip_mkroute_input(skb, &res, &fl4, in_dev, daddr, saddr, tos);
+	err = ip_mkroute_input(skb, &res, net, &fl4, in_dev, daddr, saddr,
+			       tos, lsrc);
 out:	return err;
 
 brd_input:
 	if (skb->protocol != htons(ETH_P_IP))
+		goto e_inval;
+	if (lsrc)
 		goto e_inval;
 
 	if (ipv4_is_zeronet(saddr))
 		spec_dst = inet_select_addr(dev, 0, RT_SCOPE_LINK);
 	else {
 		err = fib_validate_source(skb, saddr, 0, tos, 0, dev, &spec_dst,
-					  &itag);
+					  &itag, 1);
 		if (err < 0)
 			goto martian_source_keep_err;
 		if (err)
@@ -2362,6 +2388,8 @@ local_input:
 
 	rth->rt_key_dst	= daddr;
 	rth->rt_key_src	= saddr;
+	rth->rt_key_lsrc = 0;
+	rth->rt_key_gw	= 0;
 	rth->rt_genid = rt_genid(net);
 	rth->rt_flags 	= flags|RTCF_LOCAL;
 	rth->rt_type	= res.type;
@@ -2430,8 +2458,9 @@ martian_source_keep_err:
 	goto out;
 }
 
-int ip_route_input_common(struct sk_buff *skb, __be32 daddr, __be32 saddr,
-			   u8 tos, struct net_device *dev, bool noref)
+int ip_route_input_cached(struct sk_buff *skb, __be32 daddr, __be32 saddr,
+			   u8 tos, struct net_device *dev, bool noref,
+			   __be32 lsrc)
 {
 	struct rtable * rth;
 	unsigned	hash;
@@ -2454,6 +2483,7 @@ int ip_route_input_common(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		if ((((__force u32)rth->rt_key_dst ^ (__force u32)daddr) |
 		     ((__force u32)rth->rt_key_src ^ (__force u32)saddr) |
 		     (rth->rt_route_iif ^ iif) |
+		     (rth->rt_key_lsrc ^ lsrc) |
 		     (rth->rt_key_tos ^ tos)) == 0 &&
 		    rth->rt_mark == skb->mark &&
 		    net_eq(dev_net(rth->dst.dev), net) &&
@@ -2507,11 +2537,24 @@ skip_cache:
 		rcu_read_unlock();
 		return -EINVAL;
 	}
-	res = ip_route_input_slow(skb, daddr, saddr, tos, dev);
+	res = ip_route_input_slow(skb, daddr, saddr, tos, dev, lsrc);
 	rcu_read_unlock();
 	return res;
 }
+
+int ip_route_input_common(struct sk_buff *skb, __be32 daddr, __be32 saddr,
+			  u8 tos, struct net_device *dev, bool noref)
+{
+	return ip_route_input_cached(skb, daddr, saddr, tos, dev, noref, 0);
+}
 EXPORT_SYMBOL(ip_route_input_common);
+
+int ip_route_input_lookup(struct sk_buff *skb, __be32 daddr, __be32 saddr,
+			  u8 tos, struct net_device *dev, __be32 lsrc)
+{
+	return ip_route_input_cached(skb, daddr, saddr, tos, dev, true, lsrc);
+}
+EXPORT_SYMBOL(ip_route_input_lookup);
 
 /* called with rcu_read_lock() */
 static struct rtable *__mkroute_output(const struct fib_result *res,
@@ -2569,6 +2612,8 @@ static struct rtable *__mkroute_output(const struct fib_result *res,
 
 	rth->rt_key_dst	= orig_daddr;
 	rth->rt_key_src	= orig_saddr;
+	rth->rt_key_lsrc = 0;
+	rth->rt_key_gw	= fl4->fl4_gw;
 	rth->rt_genid = rt_genid(dev_net(dev_out));
 	rth->rt_flags	= flags;
 	rth->rt_type	= type;
@@ -2729,6 +2774,7 @@ static struct rtable *ip_route_output_slow(struct net *net, struct flowi4 *fl4)
 			fl4->daddr = fl4->saddr = htonl(INADDR_LOOPBACK);
 		dev_out = net->loopback_dev;
 		fl4->flowi4_oif = net->loopback_dev->ifindex;
+		fl4->fl4_gw = 0;
 		res.type = RTN_LOCAL;
 		flags |= RTCF_LOCAL;
 		goto make_route;
@@ -2766,6 +2812,27 @@ static struct rtable *ip_route_output_slow(struct net *net, struct flowi4 *fl4)
 	}
 
 	if (res.type == RTN_LOCAL) {
+		struct in_device *in_dev;
+		__be32 src;
+
+		dev_out = FIB_RES_DEV(res);
+		in_dev = __in_dev_get_rcu(dev_out);
+		src = fl4->saddr? : FIB_RES_PREFSRC(net, res);
+		if (in_dev && IN_DEV_LOOP(in_dev) && src) {
+			struct net_device *dev_src;
+
+			dev_src = __ip_dev_find(net, src, false);
+			if (dev_src && dev_src != dev_out &&
+			    (in_dev = __in_dev_get_rcu(dev_src)) &&
+			    IN_DEV_LOOP(in_dev)) {
+				dev_out = dev_src;
+				fl4->saddr = src;
+				fl4->flowi4_oif = dev_out->ifindex;
+				res.type = RTN_UNICAST;
+				res.fi = NULL;
+				goto make_route;
+			}
+		}
 		if (!fl4->saddr) {
 			if (res.fi->fib_prefsrc)
 				fl4->saddr = res.fi->fib_prefsrc;
@@ -2774,20 +2841,18 @@ static struct rtable *ip_route_output_slow(struct net *net, struct flowi4 *fl4)
 		}
 		dev_out = net->loopback_dev;
 		fl4->flowi4_oif = dev_out->ifindex;
+		fl4->fl4_gw = 0;
 		res.fi = NULL;
 		flags |= RTCF_LOCAL;
 		goto make_route;
 	}
 
+	if (res.type == RTN_UNICAST)
+		fib_select_default(fl4, &res);
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
-	if (res.fi->fib_nhs > 1 && fl4->flowi4_oif == 0)
-		fib_select_multipath(&res);
-	else
+	if (res.fi->fib_nhs > 1)
+		fib_select_multipath(fl4, &res);
 #endif
-	if (!res.prefixlen &&
-	    res.table->tb_num_default > 1 &&
-	    res.type == RTN_UNICAST && !fl4->flowi4_oif)
-		fib_select_default(&res);
 
 	if (!fl4->saddr)
 		fl4->saddr = FIB_RES_PREFSRC(net, res);
@@ -2829,6 +2894,7 @@ struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *flp4)
 		    rth->rt_key_src == flp4->saddr &&
 		    rt_is_output_route(rth) &&
 		    rth->rt_oif == flp4->flowi4_oif &&
+		    rth->rt_key_gw == flp4->fl4_gw &&
 		    rth->rt_mark == flp4->flowi4_mark &&
 		    !((rth->rt_key_tos ^ flp4->flowi4_tos) &
 			    (IPTOS_RT_MASK | RTO_ONLINK)) &&
@@ -2906,6 +2972,8 @@ struct dst_entry *ipv4_blackhole_route(struct net *net, struct dst_entry *dst_or
 
 		rt->rt_key_dst = ort->rt_key_dst;
 		rt->rt_key_src = ort->rt_key_src;
+		rt->rt_key_lsrc = ort->rt_key_lsrc;
+		rt->rt_key_gw = ort->rt_key_gw ? ort->rt_gateway : 0;
 		rt->rt_key_tos = ort->rt_key_tos;
 		rt->rt_route_iif = ort->rt_route_iif;
 		rt->rt_iif = ort->rt_iif;

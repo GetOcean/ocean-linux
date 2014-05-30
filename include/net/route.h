@@ -48,6 +48,8 @@ struct rtable {
 	/* Lookup key. */
 	__be32			rt_key_dst;
 	__be32			rt_key_src;
+	__be32			rt_key_lsrc;
+	__be32			rt_key_gw;
 
 	int			rt_genid;
 	unsigned		rt_flags;
@@ -191,6 +193,7 @@ extern void		ip_rt_multicast_event(struct in_device *);
 extern int		ip_rt_ioctl(struct net *, unsigned int cmd, void __user *arg);
 extern void		ip_rt_get_source(u8 *src, struct sk_buff *skb, struct rtable *rt);
 extern int		ip_rt_dump(struct sk_buff *skb,  struct netlink_callback *cb);
+extern int		ip_route_input_lookup(struct sk_buff*, __be32 dst, __be32 src, u8 tos, struct net_device *devin, __be32 lsrc);
 
 struct in_ifaddr;
 extern void fib_add_ifaddr(struct in_ifaddr *);

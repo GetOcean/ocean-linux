@@ -10,7 +10,7 @@
  *        lot of code from the lirc_serial module,
  *              so I would like say thanks to the authors.
  *
- * Copyright (C) 2013 Matthias Hölling <mhoel....@gmail.nospam.com>,
+ * Copyright (C) 2013 Matthias H��lling <mhoel....@gmail.nospam.com>,
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -41,6 +41,8 @@
 #include <media/lirc.h>
 #include <media/lirc_dev.h>
 #include <linux/gpio.h>
+#include <plat/sys_config.h>
+#include <../drivers/gpio/gpio-sunxi.h>
 
 #define LIRC_DRIVER_NAME "lirc_gpio"
 /* this may have to be adapted for different platforms */
@@ -349,7 +351,10 @@ static void set_sense(void)
 
 static int setup_tx(int new_out_pin)
 {
-    int ret;
+	int ret;
+    user_gpio_set_t* pinstate;
+    struct sunxi_gpio_chip* sgpio = container_of(gpiochip,struct sunxi_gpio_chip,chip);
+    dprintk("addresses: gpiochip: %lx, sgpio: %lx",(unsigned long int) gpiochip,(unsigned long int) sgpio);
     if (gpio_out_pin==new_out_pin)
         return 0; //do not set up, pin not changed
 
@@ -369,9 +374,19 @@ static int setup_tx(int new_out_pin)
         ret = -ENODEV;
         goto exit_disable_tx;
     }
-        gpiochip->direction_output(gpiochip, TX_OFFSET_GPIOCHIP, 1);
-        gpiochip->set(gpiochip, TX_OFFSET_GPIOCHIP, invert);
+    gpiochip->direction_output(gpiochip, TX_OFFSET_GPIOCHIP, 1);
+    gpiochip->set(gpiochip, TX_OFFSET_GPIOCHIP, invert);
+    pinstate=kzalloc(sizeof(user_gpio_set_t),GFP_KERNEL);
 
+    //dprintk("pin:address %lx, pin_name: %s, pin handler: %d",(unsigned long int) &(sgpio->data[TX_OFFSET_GPIOCHIP]),
+    // 		sgpio->data[TX_OFFSET_GPIOCHIP].pin_name,sgpio->data[TX_OFFSET_GPIOCHIP].gpio_handler);
+    ret=gpio_get_one_pin_status(sgpio->data[TX_OFFSET_GPIOCHIP].gpio_handler, pinstate, sgpio->data[TX_OFFSET_GPIOCHIP].pin_name, true);
+    if(pinstate && !ret) {
+    	pr_info("Maximum load on '%s' is %d mA\n", gpiochip->names[TX_OFFSET_GPIOCHIP], 10+10*pinstate->drv_level);
+    	kfree(pinstate);
+    }
+    else
+    	printk(KERN_ALERT LIRC_DRIVER_NAME ": something might have gone wrong, return from pin status query: %d",ret);
     return 0;  // successfully set up
 
 exit_disable_tx:
