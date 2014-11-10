@@ -82,13 +82,15 @@ static struct vfsmount *shm_mnt;
  * we would prefer not to enlarge the shmem inode just for that.
  */
 
-// old - danand/patwood variant 
+//variant which was added in 3.4.100 
 //struct shmem_falloc {
 //	pgoff_t start;		/* start of range currently being fallocated */
 //	pgoff_t next;		/* the next page offset to be fallocated */
 //	pgoff_t nr_falloced;	/* how many new pages have been fallocated */
 //	pgoff_t nr_unswapped;	/* how often writepage refused to swap out */
 //};
+
+// variant of the XATTR for CGROUPS backport
 
 struct shmem_falloc {
        wait_queue_head_t *waitq; /* faults into hole wait for punch to end */
