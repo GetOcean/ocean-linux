@@ -1,9 +1,9 @@
 /*
- * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
- *
+ * Copyright (C) 2010-2014 ARM Limited. All rights reserved.
+ * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
- *
+ * 
  * A copy of the licence is included with the program, and can also be obtained from Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
@@ -11,13 +11,11 @@
 #ifndef _MALI_UTGARD_COUNTERS_H_
 #define _MALI_UTGARD_COUNTERS_H_
 
-typedef struct
-{
+typedef struct {
 	void *unused;
 } mali_cinstr_counter_info;
 
-typedef enum
-{
+typedef enum {
 	MALI_CINSTR_COUNTER_SOURCE_EGL      =     0,
 	MALI_CINSTR_COUNTER_SOURCE_OPENGLES =  1000,
 	MALI_CINSTR_COUNTER_SOURCE_OPENVG   =  2000,
@@ -41,8 +39,7 @@ typedef enum
 #define MALI_CINSTR_PP_LAST_COUNTER (MALI_CINSTR_COUNTER_SOURCE_PP + 999)
 
 
-typedef enum
-{
+typedef enum {
 	/* EGL counters */
 
 	MALI_CINSTR_EGL_BLIT_TIME                                            = MALI_CINSTR_COUNTER_SOURCE_EGL + 0,
@@ -212,7 +209,7 @@ typedef enum
 	MALI_CINSTR_PP_RSW_READS                                             = MALI_CINSTR_COUNTER_SOURCE_PP + 15,
 	MALI_CINSTR_PP_VERTEX_CACHE_READS                                    = MALI_CINSTR_COUNTER_SOURCE_PP + 16,
 	MALI_CINSTR_PP_UNIFORM_REMAPPING_READS                               = MALI_CINSTR_COUNTER_SOURCE_PP + 17,
-	MALI_CINSTR_PP_PROGRAM_CACHE_READS                                   = MALI_CINSTR_COUNTER_SOURCE_PP + 19,
+	MALI_CINSTR_PP_PROGRAM_CACHE_READS                                   = MALI_CINSTR_COUNTER_SOURCE_PP + 18,
 	MALI_CINSTR_PP_VARYING_READS                                         = MALI_CINSTR_COUNTER_SOURCE_PP + 19,
 	MALI_CINSTR_PP_TEXTURE_DESCRIPTORS_READS                             = MALI_CINSTR_COUNTER_SOURCE_PP + 20,
 	MALI_CINSTR_PP_TEXTURE_DESCRIPTORS_REMAPPING_READS                   = MALI_CINSTR_COUNTER_SOURCE_PP + 21,
