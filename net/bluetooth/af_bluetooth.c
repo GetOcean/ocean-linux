@@ -25,25 +25,9 @@
 /* Bluetooth address family and sockets. */
 
 #include <linux/module.h>
-
-#include <linux/types.h>
-#include <linux/list.h>
-#include <linux/errno.h>
-#include <linux/kernel.h>
-#include <linux/sched.h>
-#include <linux/skbuff.h>
-#include <linux/init.h>
-#include <linux/poll.h>
-#include <net/sock.h>
 #include <asm/ioctls.h>
-#include <linux/kmod.h>
 
 #include <net/bluetooth/bluetooth.h>
-
-#ifndef CONFIG_BT_SOCK_DEBUG
-#undef  BT_DBG
-#define BT_DBG(D...)
-#endif
 
 #define VERSION "2.16"
 
@@ -127,39 +111,10 @@ int bt_sock_unregister(int proto)
 }
 EXPORT_SYMBOL(bt_sock_unregister);
 
-#ifdef CONFIG_PARANOID_NETWORK
-static inline int current_has_bt_admin(void)
-{
-	return !current_euid();
-}
-
-static inline int current_has_bt(void)
-{
-	return current_has_bt_admin();
-}
-# else
-static inline int current_has_bt_admin(void)
-{
-	return 1;
-}
-
-static inline int current_has_bt(void)
-{
-	return 1;
-}
-#endif
-
 static int bt_sock_create(struct net *net, struct socket *sock, int proto,
 			  int kern)
 {
 	int err;
-
-	if (proto == BTPROTO_RFCOMM || proto == BTPROTO_SCO ||
-			proto == BTPROTO_L2CAP) {
-		if (!current_has_bt())
-			return -EPERM;
-	} else if (!current_has_bt_admin())
-		return -EPERM;
 
 	if (net != &init_net)
 		return -EAFNOSUPPORT;
@@ -244,7 +199,7 @@ struct sock *bt_accept_dequeue(struct sock *parent, struct socket *newsock)
 		}
 
 		if (sk->sk_state == BT_CONNECTED || !newsock ||
-						bt_sk(parent)->defer_setup) {
+		    test_bit(BT_SK_DEFER_SETUP, &bt_sk(parent)->flags)) {
 			bt_accept_unlink(sk);
 			if (newsock)
 				sock_graft(sk, newsock);
@@ -280,6 +235,8 @@ int bt_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 			return 0;
 		return err;
 	}
+
+	msg->msg_namelen = 0;
 
 	copied = skb->len;
 	if (len < copied) {
@@ -337,6 +294,8 @@ int bt_sock_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 	if (flags & MSG_OOB)
 		return -EOPNOTSUPP;
+
+	msg->msg_namelen = 0;
 
 	BT_DBG("sk %p size %zu", sk, size);
 
@@ -440,15 +399,16 @@ static inline unsigned int bt_accept_poll(struct sock *parent)
 	list_for_each_safe(p, n, &bt_sk(parent)->accept_q) {
 		sk = (struct sock *) list_entry(p, struct bt_sock, accept_q);
 		if (sk->sk_state == BT_CONNECTED ||
-					(bt_sk(parent)->defer_setup &&
-						sk->sk_state == BT_CONNECT2))
+		    (test_bit(BT_SK_DEFER_SETUP, &bt_sk(parent)->flags) &&
+		     sk->sk_state == BT_CONNECT2))
 			return POLLIN | POLLRDNORM;
 	}
 
 	return 0;
 }
 
-unsigned int bt_sock_poll(struct file *file, struct socket *sock, poll_table *wait)
+unsigned int bt_sock_poll(struct file *file, struct socket *sock,
+			  poll_table *wait)
 {
 	struct sock *sk = sock->sk;
 	unsigned int mask = 0;
@@ -480,7 +440,7 @@ unsigned int bt_sock_poll(struct file *file, struct socket *sock, poll_table *wa
 			sk->sk_state == BT_CONFIG)
 		return mask;
 
-	if (!bt_sk(sk)->suspended && sock_writeable(sk))
+	if (!test_bit(BT_SK_SUSPEND, &bt_sk(sk)->flags) && sock_writeable(sk))
 		mask |= POLLOUT | POLLWRNORM | POLLWRBAND;
 	else
 		set_bit(SOCK_ASYNC_NOSPACE, &sk->sk_socket->flags);
