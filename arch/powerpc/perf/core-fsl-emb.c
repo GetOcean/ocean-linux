@@ -70,6 +70,12 @@ static unsigned long read_pmc(int idx)
 	case 3:
 		val = mfpmr(PMRN_PMC3);
 		break;
+	case 4:
+		val = mfpmr(PMRN_PMC4);
+		break;
+	case 5:
+		val = mfpmr(PMRN_PMC5);
+		break;
 	default:
 		printk(KERN_ERR "oops trying to read PMC%d\n", idx);
 		val = 0;
@@ -94,6 +100,12 @@ static void write_pmc(int idx, unsigned long val)
 		break;
 	case 3:
 		mtpmr(PMRN_PMC3, val);
+		break;
+	case 4:
+		mtpmr(PMRN_PMC4, val);
+		break;
+	case 5:
+		mtpmr(PMRN_PMC5, val);
 		break;
 	default:
 		printk(KERN_ERR "oops trying to write PMC%d\n", idx);
@@ -120,6 +132,12 @@ static void write_pmlca(int idx, unsigned long val)
 	case 3:
 		mtpmr(PMRN_PMLCA3, val);
 		break;
+	case 4:
+		mtpmr(PMRN_PMLCA4, val);
+		break;
+	case 5:
+		mtpmr(PMRN_PMLCA5, val);
+		break;
 	default:
 		printk(KERN_ERR "oops trying to write PMLCA%d\n", idx);
 	}
@@ -144,6 +162,12 @@ static void write_pmlcb(int idx, unsigned long val)
 		break;
 	case 3:
 		mtpmr(PMRN_PMLCB3, val);
+		break;
+	case 4:
+		mtpmr(PMRN_PMLCB4, val);
+		break;
+	case 5:
+		mtpmr(PMRN_PMLCB5, val);
 		break;
 	default:
 		printk(KERN_ERR "oops trying to write PMLCB%d\n", idx);
@@ -186,7 +210,7 @@ static void fsl_emb_pmu_disable(struct pmu *pmu)
 	unsigned long flags;
 
 	local_irq_save(flags);
-	cpuhw = &__get_cpu_var(cpu_hw_events);
+	cpuhw = this_cpu_ptr(&cpu_hw_events);
 
 	if (!cpuhw->disabled) {
 		cpuhw->disabled = 1;
@@ -225,7 +249,7 @@ static void fsl_emb_pmu_enable(struct pmu *pmu)
 	unsigned long flags;
 
 	local_irq_save(flags);
-	cpuhw = &__get_cpu_var(cpu_hw_events);
+	cpuhw = this_cpu_ptr(&cpu_hw_events);
 	if (!cpuhw->disabled)
 		goto out;
 
@@ -462,6 +486,12 @@ static int fsl_emb_pmu_event_init(struct perf_event *event)
 	int num_restricted;
 	int i;
 
+	if (ppmu->n_counter > MAX_HWEVENTS) {
+		WARN(1, "No. of perf counters (%d) is higher than max array size(%d)\n",
+			ppmu->n_counter, MAX_HWEVENTS);
+		ppmu->n_counter = MAX_HWEVENTS;
+	}
+
 	switch (event->attr.type) {
 	case PERF_TYPE_HARDWARE:
 		ev = event->attr.config;
@@ -613,8 +643,7 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
 	if (record) {
 		struct perf_sample_data data;
 
-		perf_sample_data_init(&data, 0);
-		data.period = event->hw.last_period;
+		perf_sample_data_init(&data, 0, event->hw.last_period);
 
 		if (perf_event_overflow(event, &data, regs))
 			fsl_emb_pmu_stop(event, 0);
@@ -624,7 +653,7 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
 static void perf_event_interrupt(struct pt_regs *regs)
 {
 	int i;
-	struct cpu_hw_events *cpuhw = &__get_cpu_var(cpu_hw_events);
+	struct cpu_hw_events *cpuhw = this_cpu_ptr(&cpu_hw_events);
 	struct perf_event *event;
 	unsigned long val;
 	int found = 0;

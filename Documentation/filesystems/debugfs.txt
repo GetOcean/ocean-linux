@@ -15,8 +15,8 @@ Debugfs is typically mounted with a command like:
     mount -t debugfs none /sys/kernel/debug
 
 (Or an equivalent /etc/fstab line).
-The debugfs root directory is accessible by anyone by default. To
-restrict access to the tree the "uid", "gid" and "mode" mount
+The debugfs root directory is accessible only to the root user by
+default. To change access to the tree the "uid", "gid" and "mode" mount
 options can be used.
 
 Note that the debugfs API is exported GPL-only to modules.
@@ -140,7 +140,7 @@ file.
 				     struct dentry *parent,
 				     struct debugfs_regset32 *regset);
 
-    int debugfs_print_regs32(struct seq_file *s, struct debugfs_reg32 *regs,
+    void debugfs_print_regs32(struct seq_file *s, struct debugfs_reg32 *regs,
 			 int nregs, void __iomem *base, char *prefix);
 
 The "base" argument may be 0, but you may want to build the reg32 array

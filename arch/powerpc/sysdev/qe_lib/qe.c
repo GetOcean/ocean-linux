@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2010 Freescale Semicondutor, Inc. All rights reserved.
+ * Copyright (C) 2006-2010 Freescale Semiconductor, Inc. All rights reserved.
  *
  * Authors: 	Shlomi Gridish <gridish@freescale.com>
  * 		Li Yang <leoli@freescale.com>
@@ -22,7 +22,6 @@
 #include <linux/spinlock.h>
 #include <linux/mm.h>
 #include <linux/interrupt.h>
-#include <linux/bootmem.h>
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/ioport.h>
@@ -395,6 +394,9 @@ static void qe_upload_microcode(const void *base,
 
 	for (i = 0; i < be32_to_cpu(ucode->count); i++)
 		out_be32(&qe_immr->iram.idata, be32_to_cpu(code[i]));
+	
+	/* Set I-RAM Ready Register */
+	out_be32(&qe_immr->iram.iready, be32_to_cpu(QE_IRAM_READY));
 }
 
 /*
@@ -690,7 +692,6 @@ static const struct of_device_id qe_ids[] = {
 static struct platform_driver qe_driver = {
 	.driver = {
 		.name = "fsl-qe",
-		.owner = THIS_MODULE,
 		.of_match_table = qe_ids,
 	},
 	.probe = qe_probe,

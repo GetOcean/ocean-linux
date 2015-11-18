@@ -776,15 +776,9 @@ static int
 snd_harmony_captureroute_info(struct snd_kcontrol *kc, 
 			      struct snd_ctl_elem_info *uinfo)
 {
-	static char *texts[2] = { "Line", "Mic" };
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
-	uinfo->count = 1;
-	uinfo->value.enumerated.items = 2;
-	if (uinfo->value.enumerated.item > 1)
-		uinfo->value.enumerated.item = 1;
-	strcpy(uinfo->value.enumerated.name,
-	       texts[uinfo->value.enumerated.item]);
-	return 0;
+	static const char * const texts[2] = { "Line", "Mic" };
+
+	return snd_ctl_enum_info(uinfo, 1, 2, texts);
 }
 
 static int 
@@ -856,7 +850,7 @@ static struct snd_kcontrol_new snd_harmony_controls[] = {
 		       HARMONY_GAIN_HE_SHIFT, 1, 0),
 };
 
-static void __devinit
+static void
 snd_harmony_mixer_reset(struct snd_harmony *h)
 {
 	harmony_mute(h);
@@ -865,7 +859,7 @@ snd_harmony_mixer_reset(struct snd_harmony *h)
 	harmony_unmute(h);
 }
 
-static int __devinit
+static int
 snd_harmony_mixer_init(struct snd_harmony *h)
 {
 	struct snd_card *card;
@@ -902,8 +896,6 @@ snd_harmony_free(struct snd_harmony *h)
 	if (h->iobase)
 		iounmap(h->iobase);
 
-	parisc_set_drvdata(h->dev, NULL);
-
 	kfree(h);
 	return 0;
 }
@@ -915,7 +907,7 @@ snd_harmony_dev_free(struct snd_device *dev)
 	return snd_harmony_free(h);
 }
 
-static int __devinit
+static int
 snd_harmony_create(struct snd_card *card, 
 		   struct parisc_device *padev, 
 		   struct snd_harmony **rchip)
@@ -961,8 +953,6 @@ snd_harmony_create(struct snd_card *card,
                 goto free_and_ret;
         }
 
-	snd_card_set_dev(card, &padev->dev);
-
 	*rchip = h;
 
 	return 0;
@@ -972,14 +962,14 @@ free_and_ret:
 	return err;
 }
 
-static int __devinit
+static int
 snd_harmony_probe(struct parisc_device *padev)
 {
 	int err;
 	struct snd_card *card;
 	struct snd_harmony *h;
 
-	err = snd_card_create(index, id, THIS_MODULE, 0, &card);
+	err = snd_card_new(&padev->dev, index, id, THIS_MODULE, 0, &card);
 	if (err < 0)
 		return err;
 
@@ -1012,11 +1002,10 @@ free_and_ret:
 	return err;
 }
 
-static int __devexit
+static int
 snd_harmony_remove(struct parisc_device *padev)
 {
 	snd_card_free(parisc_get_drvdata(padev));
-	parisc_set_drvdata(padev, NULL);
 	return 0;
 }
 
@@ -1024,7 +1013,7 @@ static struct parisc_driver snd_harmony_driver = {
 	.name = "harmony",
 	.id_table = snd_harmony_devtable,
 	.probe = snd_harmony_probe,
-	.remove = __devexit_p(snd_harmony_remove),
+	.remove = snd_harmony_remove,
 };
 
 static int __init 

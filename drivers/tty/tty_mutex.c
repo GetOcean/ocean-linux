@@ -5,28 +5,58 @@
 #include <linux/sched.h>
 
 /*
- * The 'big tty mutex'
- *
- * This mutex is taken and released by tty_lock() and tty_unlock(),
- * replacing the older big kernel lock.
- * It can no longer be taken recursively, and does not get
- * released implicitly while sleeping.
- *
- * Don't use in new code.
+ * Nested tty locks are necessary for releasing pty pairs.
+ * The stable lock order is master pty first, then slave pty.
  */
-static DEFINE_MUTEX(big_tty_mutex);
+
+/* Legacy tty mutex glue */
+
+enum {
+	TTY_MUTEX_NORMAL,
+	TTY_MUTEX_SLAVE,
+};
 
 /*
  * Getting the big tty mutex.
  */
-void __lockfunc tty_lock(void)
+
+void __lockfunc tty_lock(struct tty_struct *tty)
 {
-	mutex_lock(&big_tty_mutex);
+	if (tty->magic != TTY_MAGIC) {
+		pr_err("L Bad %p\n", tty);
+		WARN_ON(1);
+		return;
+	}
+	tty_kref_get(tty);
+	mutex_lock(&tty->legacy_mutex);
 }
 EXPORT_SYMBOL(tty_lock);
 
-void __lockfunc tty_unlock(void)
+void __lockfunc tty_unlock(struct tty_struct *tty)
 {
-	mutex_unlock(&big_tty_mutex);
+	if (tty->magic != TTY_MAGIC) {
+		pr_err("U Bad %p\n", tty);
+		WARN_ON(1);
+		return;
+	}
+	mutex_unlock(&tty->legacy_mutex);
+	tty_kref_put(tty);
 }
 EXPORT_SYMBOL(tty_unlock);
+
+void __lockfunc tty_lock_slave(struct tty_struct *tty)
+{
+	if (tty && tty != tty->link)
+		tty_lock(tty);
+}
+
+void __lockfunc tty_unlock_slave(struct tty_struct *tty)
+{
+	if (tty && tty != tty->link)
+		tty_unlock(tty);
+}
+
+void tty_set_lock_subclass(struct tty_struct *tty)
+{
+	lockdep_set_subclass(&tty->legacy_mutex, TTY_MUTEX_SLAVE);
+}

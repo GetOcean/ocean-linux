@@ -53,6 +53,14 @@
  * as opposed to devices that do something strangely or wrongly.
  */
 
+/* In-kernel mode switching is deprecated.  Do not add new devices to
+ * this list for the sole purpose of switching them to a different
+ * mode.  Existing userspace solutions are superior.
+ *
+ * New mode switching devices should instead be added to the database
+ * maintained at http://www.draisberghof.de/usb_modeswitch/
+ */
+
 #if !defined(CONFIG_USB_STORAGE_SDDR09) && \
 		!defined(CONFIG_USB_STORAGE_SDDR09_MODULE)
 #define NO_SDDR09
@@ -116,7 +124,7 @@ UNUSUAL_DEV(  0x040d, 0x6205, 0x0003, 0x0003,
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_IGNORE_RESIDUE ),
 
-/* Deduced by Jonathan Woithe <jwoithe@physics.adelaide.edu.au>
+/* Deduced by Jonathan Woithe <jwoithe@just42.net>
  * Entry needed for flags: US_FL_FIX_INQUIRY because initial inquiry message
  * always fails and confuses drive.
  */
@@ -484,15 +492,21 @@ UNUSUAL_DEV(  0x04e6, 0x000a, 0x0200, 0x0200,
 		"eUSB CompactFlash Adapter",
 		USB_SC_8020, USB_PR_CB, NULL, 0),
 
-UNUSUAL_DEV(  0x04e6, 0x000B, 0x0100, 0x0100,
+UNUSUAL_DEV(  0x04e6, 0x000b, 0x0100, 0x0100,
 		"Shuttle",
 		"eUSCSI Bridge",
 		USB_SC_SCSI, USB_PR_BULK, usb_stor_euscsi_init,
 		US_FL_SCM_MULT_TARG ), 
 
-UNUSUAL_DEV(  0x04e6, 0x000C, 0x0100, 0x0100,
+UNUSUAL_DEV(  0x04e6, 0x000c, 0x0100, 0x0100,
 		"Shuttle",
 		"eUSCSI Bridge",
+		USB_SC_SCSI, USB_PR_BULK, usb_stor_euscsi_init,
+		US_FL_SCM_MULT_TARG ),
+
+UNUSUAL_DEV(  0x04e6, 0x000f, 0x0000, 0x9999,
+		"SCM Microsystems",
+		"eUSB SCSI Adapter (Bus Powered)",
 		USB_SC_SCSI, USB_PR_BULK, usb_stor_euscsi_init,
 		US_FL_SCM_MULT_TARG ),
 
@@ -808,12 +822,6 @@ UNUSUAL_DEV( 0x05ac, 0x120a, 0x0000, 0x9999,
  * Ignore driver CD mode and force into modem mode by default.
  */
 
-UNUSUAL_DEV(  0x05c6, 0x1000, 0x0000, 0x0000,
-		"HUAWEI MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
-		0),
-
 /* Globetrotter HSDPA; mass storage shows up as Qualcomm for vendor */
 UNUSUAL_DEV(  0x05c6, 0x1000, 0x0000, 0x9999,
 		"Option N.V.",
@@ -931,6 +939,12 @@ UNUSUAL_DEV(  0x069b, 0x3004, 0x0001, 0x0001,
 		"RCA RD1080 MP3 Player",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_FIX_CAPACITY ),
+
+UNUSUAL_DEV(  0x06ca, 0x2003, 0x0100, 0x0100,
+		"Newer Technology",
+		"uSCSI",
+		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_euscsi_init,
+		US_FL_SCM_MULT_TARG ),
 
 /* Reported by Adrian Pilchowiec <adi1981@epf.pl> */
 UNUSUAL_DEV(  0x071b, 0x3203, 0x0000, 0x0000,
@@ -1090,6 +1104,13 @@ UNUSUAL_DEV( 0x0840, 0x0085, 0x0001, 0x0001,
 		"Storage",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_FIX_CAPACITY),
+
+/* Supplied with some Castlewood ORB removable drives */
+UNUSUAL_DEV(  0x084b, 0xa001, 0x0000, 0x9999,
+		"Castlewood Systems",
+		"USB to SCSI cable",
+		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_euscsi_init,
+		US_FL_SCM_MULT_TARG ),
 
 /* Entry and supporting patch by Theodore Kilgore <kilgota@auburn.edu>.
  * Flag will support Bulk devices which use a standards-violating 32-byte
@@ -1338,6 +1359,12 @@ UNUSUAL_DEV( 0x0af0, 0xd357, 0x0000, 0x0000,
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		0 ),
 
+/* Reported by Namjae Jeon <namjae.jeon@samsung.com> */
+UNUSUAL_DEV(0x0bc2, 0x2300, 0x0000, 0x9999,
+		"Seagate",
+		"Portable HDD",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL, US_FL_WRITE_CACHE),
+
 /* Reported by Ben Efros <ben@pc-doctor.com> */
 UNUSUAL_DEV( 0x0bc2, 0x3010, 0x0000, 0x0000,
 		"Seagate",
@@ -1545,6 +1572,12 @@ UNUSUAL_DEV(  0x1058, 0x0704, 0x0000, 0x9999,
 		"External HDD",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_SANE_SENSE),
+
+/* Reported by Namjae Jeon <namjae.jeon@samsung.com> */
+UNUSUAL_DEV(0x1058, 0x070a, 0x0000, 0x9999,
+		"Western Digital",
+		"My Passport HDD",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL, US_FL_WRITE_CACHE),
 
 /* Reported by Fabio Venturi <f.venturi@tdnet.it>
  * The device reports a vendor-specific bDeviceClass.
@@ -1917,183 +1950,6 @@ UNUSUAL_DEV(  0x12d1, 0x143F, 0x0000, 0x0000,
 		"Mass Storage",
 		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
 		0),
-UNUSUAL_DEV(  0x12d1, 0x1446, 0x0000, 0x0000,
-		"HUAWEI MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
-		0),
-UNUSUAL_DEV(  0x12d1, 0x14ac, 0x0000, 0x0000,
-		"HUAWEI MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
-		0),
-UNUSUAL_DEV(  0x12d1, 0x1505, 0x0000, 0x0000,
-		"HUAWEI MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
-		0),
-UNUSUAL_DEV(  0x12d1, 0x1506, 0x0000, 0x0000,
-		"HUAWEI MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
-		0),
-UNUSUAL_DEV(  0x12d1, 0x1d09, 0x0100, 0x0100,
-		"HUAWEI MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
-		0),
-
-UNUSUAL_DEV(  0x12d1, 0x1da1, 0x0100, 0x0100,
-		"HUAWEI MOBILE-TD",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
-		0),
-
-
-UNUSUAL_DEV(  0x05c6, 0x6000, 0x0000, 0x0000,
-		"HUAWEI MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_huawei_e220_init,
-		0),
-//MU350--ZTE--	0x19D20003->0x19D20003	don't report disk device
-UNUSUAL_DEV(0x19D2,0x0003,0x0100,0x0100,
-		"ZTE MOBILE-TD",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init,
-		0),
-
-
-//A355--ZTE--	0x19D20120->0x19D20079	don't report disk device
-UNUSUAL_DEV(0x19D2,0x0120,0x0204  ,0x0204  ,
-		"ZTE MOBILE-TD",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_ZTE_AC580_init,
-		0),
-
-//A355--ZTE--	0x19D20120->0x19D20079	don't report disk device
-UNUSUAL_DEV(0x19D2,0x0079,0x0100  ,0x0100  ,
-		"ZTE MOBILE-TD",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_ZTE_AC580_init,
-		0),
-
-//TU930--GaoKeZhongtian--	0x04cc225a->0x04cc225a	don't report disk device
-UNUSUAL_DEV(0x04cc,0x225a,0x100,0x100,
-		"GaoKeZhongtian MOBILE-TD",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_ZTE_AC580_init,
-		0),
-
-//AC560--ZTE--	0x19d20026->0x19d20094	don't report disk device
-UNUSUAL_DEV(0x19D2,0x0026,0x0000,0x0000,
-		"ZTE MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init,
-		0),
-
-//MF626/MF633/MF110--ZTE--	0x19d22000->0x19d20031	don't report disk device
-UNUSUAL_DEV(0x19D2,0x0031,0x0000,0x0000,
-		"ZTE MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init2,
-		0),
-
-//AC560--ZTE--	0x19d20026->0x19d20094	don't report disk device
-UNUSUAL_DEV(0x19D2,0x0094,0x0000,0x0000,
-		"ZTE MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init2,
-		0),
-
-//AC560--ZTE--	0x19d20026->0x19d20152	don't report disk device
-UNUSUAL_DEV(0x19D2,0x0152,0x0000,0x0000,
-		"ZTE MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init2,
-		0),
-
-//MF626/MF633/MF110--ZTE--	0x19d22000->0x19d20031	don't report disk device
-UNUSUAL_DEV(0x19D2,0x2000,0x0000,0x0000,
-		"ZTE MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init,
-		0),
-
-//MF637U--ZTE--	don't report disk device
-UNUSUAL_DEV(0x19D2,0xf006,0x0000,0x0000,
-		"ZTE MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init2,
-		0),
-
-//MF637U--ZTE--	 ->0x19d2fff1	don't report disk device
-UNUSUAL_DEV(0x19D2,0xfff1,0x0000,0x0000,
-		"ZTE MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init2,
-		0),
-
-//AC2736/AC2746	don't report disk device
-UNUSUAL_DEV(0x19D2,0xfff5,0x0000,0x0000,
-		"ZTE MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ZTE_AC580_init2,
-		0),
-
-//shanghai ASB T920--ASB--don't report disk device
-UNUSUAL_DEV(0x04cc,0x226e,0x0100,0x0100,
-		"ASB MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_ASB_init,
-		0),
-
-//shanghai ASB C820--ASB--don't report disk device
-UNUSUAL_DEV(0x05c6,0x0010,0x00,0x00,
-		"ASB MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_ASB_init,
-		0),
-
-//shanghai ASB C820--ASB--don't report disk device
-UNUSUAL_DEV(0x05c6,0x00a0,0x00,0x00,
-		"ASB MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_ASB_init,
-		0),
-
-//TechFaith--don't report disk device
-UNUSUAL_DEV(0x1d09,0x1010,0x0,0x0,
-		"TechFaith MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_TechFaith_init,
-		0),
-//TechFaith--don't report disk device
-UNUSUAL_DEV(0x1d09,0x1000,0x0,0x0,
-		"TechFaith MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_TechFaith_init,
-		0),
-
-//wangxun--don't report disk device
-UNUSUAL_DEV(0x1e89,0x1e16,0x0,0x0,
-		"wangxun MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_wangxun_init,
-		0),
-
-//TechFaith--don't report disk device
-UNUSUAL_DEV(0x1e89,0x1a20,0x0,0x0,
-		"Shichuangxing MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_TechFaith_init,
-		0),
-
-//TechFaith--don't report disk device
-UNUSUAL_DEV(0x1e89,0xf000,0x0,0x0,
-		"Shichuangxing MOBILE",
-		"Mass Storage",
-		USB_SC_DEVICE,USB_PR_DEVICE,usb_stor_Shichuangxing_init,
-		0),
 
 /* Reported by Vilius Bilinkevicius <vilisas AT xxx DOT lt) */
 UNUSUAL_DEV(  0x132b, 0x000b, 0x0001, 0x0001,
@@ -2123,6 +1979,13 @@ UNUSUAL_DEV(  0x14cd, 0x6600, 0x0201, 0x0201,
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_IGNORE_RESIDUE ),
 
+/* Reported by Michael Büsch <m@bues.ch> */
+UNUSUAL_DEV(  0x152d, 0x0567, 0x0114, 0x0114,
+		"JMicron",
+		"USB to ATA/ATAPI Bridge",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
+		US_FL_BROKEN_FUA ),
+
 /* Reported by Alexandre Oliva <oliva@lsd.ic.unicamp.br>
  * JMicron responds to USN and several other SCSI ioctls with a
  * residue that causes subsequent I/O requests to fail.  */
@@ -2131,6 +1994,13 @@ UNUSUAL_DEV(  0x152d, 0x2329, 0x0100, 0x0100,
 		"USB to ATA/ATAPI Bridge",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_IGNORE_RESIDUE | US_FL_SANE_SENSE ),
+
+/* Reported by Dmitry Nezhevenko <dion@dion.org.ua> */
+UNUSUAL_DEV(  0x152d, 0x2566, 0x0114, 0x0114,
+		"JMicron",
+		"USB to ATA/ATAPI Bridge",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
+		US_FL_BROKEN_FUA ),
 
 /* Entrega Technologies U1-SC25 (later Xircom PortGear PGSCSI)
  * and Mac USB Dock USB-SCSI */
@@ -2147,6 +2017,13 @@ UNUSUAL_DEV(  0x1652, 0x6600, 0x0201, 0x0201,
 		"HD-35PUK-B",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_IGNORE_RESIDUE ),
+
+/* Reported by Oliver Neukum <oneukum@suse.com> */
+UNUSUAL_DEV(  0x174c, 0x55aa, 0x0100, 0x0100,
+		"ASMedia",
+		"AS2105",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
+		US_FL_NEEDS_CAP16),
 
 /* Reported by Jesse Feddema <jdfeddema@gmail.com> */
 UNUSUAL_DEV(  0x177f, 0x0400, 0x0000, 0x0000,
@@ -2205,6 +2082,13 @@ UNUSUAL_DEV( 0x1e74, 0x4621, 0x0000, 0x0000,
 		"MP3 Player",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_BULK_IGNORE_TAG | US_FL_MAX_SECTORS_64 ),
+
+/* Supplied with some Castlewood ORB removable drives */
+UNUSUAL_DEV(  0x2027, 0xa001, 0x0000, 0x9999,
+		"Double-H Technology",
+		"USB to SCSI Intelligent Cable",
+		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_euscsi_init,
+		US_FL_SCM_MULT_TARG ),
 
 UNUSUAL_DEV( 0x2116, 0x0320, 0x0001, 0x0001,
 		"ST",
@@ -2294,26 +2178,31 @@ UNUSUAL_DEV( 0xed10, 0x7636, 0x0001, 0x0001,
 		"Digital MP3 Audio Player",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL, US_FL_NOT_LOCKABLE ),
 
+/* Unusual uas devices */
+#if IS_ENABLED(CONFIG_USB_UAS)
+#include "unusual_uas.h"
+#endif
+
 /* Control/Bulk transport for all SubClass values */
-USUAL_DEV(USB_SC_RBC, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8020, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_QIC, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_UFI, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8070, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_SCSI, USB_PR_CB, USB_US_TYPE_STOR),
+USUAL_DEV(USB_SC_RBC, USB_PR_CB),
+USUAL_DEV(USB_SC_8020, USB_PR_CB),
+USUAL_DEV(USB_SC_QIC, USB_PR_CB),
+USUAL_DEV(USB_SC_UFI, USB_PR_CB),
+USUAL_DEV(USB_SC_8070, USB_PR_CB),
+USUAL_DEV(USB_SC_SCSI, USB_PR_CB),
 
 /* Control/Bulk/Interrupt transport for all SubClass values */
-USUAL_DEV(USB_SC_RBC, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8020, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_QIC, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_UFI, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8070, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_SCSI, USB_PR_CBI, USB_US_TYPE_STOR),
+USUAL_DEV(USB_SC_RBC, USB_PR_CBI),
+USUAL_DEV(USB_SC_8020, USB_PR_CBI),
+USUAL_DEV(USB_SC_QIC, USB_PR_CBI),
+USUAL_DEV(USB_SC_UFI, USB_PR_CBI),
+USUAL_DEV(USB_SC_8070, USB_PR_CBI),
+USUAL_DEV(USB_SC_SCSI, USB_PR_CBI),
 
 /* Bulk-only transport for all SubClass values */
-USUAL_DEV(USB_SC_RBC, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8020, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_QIC, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_UFI, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8070, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_SCSI, USB_PR_BULK, 0),
+USUAL_DEV(USB_SC_RBC, USB_PR_BULK),
+USUAL_DEV(USB_SC_8020, USB_PR_BULK),
+USUAL_DEV(USB_SC_QIC, USB_PR_BULK),
+USUAL_DEV(USB_SC_UFI, USB_PR_BULK),
+USUAL_DEV(USB_SC_8070, USB_PR_BULK),
+USUAL_DEV(USB_SC_SCSI, USB_PR_BULK),

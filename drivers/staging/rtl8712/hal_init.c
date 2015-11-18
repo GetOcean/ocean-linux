@@ -36,7 +36,6 @@
 
 #include "osdep_service.h"
 #include "drv_types.h"
-#include "rtl871x_byteorder.h"
 #include "usb_osintf.h"
 
 #define FWBUFF_ALIGN_SZ 512
@@ -50,14 +49,13 @@ static void rtl871x_load_fw_cb(const struct firmware *firmware, void *context)
 	if (!firmware) {
 		struct usb_device *udev = padapter->dvobjpriv.pusbdev;
 		struct usb_interface *pusb_intf = padapter->pusb_intf;
-		printk(KERN_ERR "r8712u: Firmware request failed\n");
-		padapter->fw_found = false;
+
+		dev_err(&udev->dev, "r8712u: Firmware request failed\n");
 		usb_put_dev(udev);
 		usb_set_intfdata(pusb_intf, NULL);
 		return;
 	}
 	padapter->fw = firmware;
-	padapter->fw_found = true;
 	/* firmware available - start netdev */
 	register_netdev(padapter->pnetdev);
 }
@@ -70,12 +68,11 @@ int rtl871x_load_fw(struct _adapter *padapter)
 	int rc;
 
 	init_completion(&padapter->rtl8712_fw_ready);
-	printk(KERN_INFO "r8712u: Loading firmware from \"%s\"\n",
-	       firmware_file);
+	dev_info(dev, "r8712u: Loading firmware from \"%s\"\n", firmware_file);
 	rc = request_firmware_nowait(THIS_MODULE, 1, firmware_file, dev,
 				     GFP_KERNEL, padapter, rtl871x_load_fw_cb);
 	if (rc)
-		printk(KERN_ERR "r8712u: Firmware request error %d\n", rc);
+		dev_err(dev, "r8712u: Firmware request error %d\n", rc);
 	return rc;
 }
 MODULE_FIRMWARE("rtlwifi/rtl8712u.bin");
@@ -85,11 +82,11 @@ static u32 rtl871x_open_fw(struct _adapter *padapter, const u8 **ppmappedfw)
 	const struct firmware **praw = &padapter->fw;
 
 	if (padapter->fw->size > 200000) {
-		printk(KERN_ERR "r8172u: Badfw->size of %d\n",
-		       (int)padapter->fw->size);
+		dev_err(&padapter->pnetdev->dev, "r8172u: Badfw->size of %d\n",
+			(int)padapter->fw->size);
 		return 0;
 	}
-	*ppmappedfw = (u8 *)((*praw)->data);
+	*ppmappedfw = (*praw)->data;
 	return (*praw)->size;
 }
 
@@ -139,15 +136,10 @@ static void update_fwhdr(struct fw_hdr	*pfwhdr, const u8 *pmappedfw)
 static u8 chk_fwhdr(struct fw_hdr *pfwhdr, u32 ulfilelength)
 {
 	u32	fwhdrsz, fw_sz;
-	u8 intf, rfconf;
 
 	/* check signature */
 	if ((pfwhdr->signature != 0x8712) && (pfwhdr->signature != 0x8192))
 		return _FAIL;
-	/* check interface */
-	intf = (u8)((pfwhdr->version&0x3000) >> 12);
-	/* check rf_conf */
-	rfconf = (u8)((pfwhdr->version&0xC000) >> 14);
 	/* check fw_priv_sze & sizeof(struct fw_priv) */
 	if (pfwhdr->fw_priv_sz != sizeof(struct fw_priv))
 		return _FAIL;
@@ -165,7 +157,7 @@ static u8 rtl8712_dl_fw(struct _adapter *padapter)
 	sint i;
 	u8 tmp8, tmp8_a;
 	u16 tmp16;
-	u32 maxlen = 0, tmp32; /* for compare usage */
+	u32 maxlen = 0; /* for compare usage */
 	uint dump_imem_sz, imem_sz, dump_emem_sz, emem_sz; /* max = 49152; */
 	struct fw_hdr fwhdr;
 	u32 ulfilelength;	/* FW file size */
@@ -185,7 +177,7 @@ static u8 rtl8712_dl_fw(struct _adapter *padapter)
 		maxlen = (fwhdr.img_IMEM_size > fwhdr.img_SRAM_size) ?
 			  fwhdr.img_IMEM_size : fwhdr.img_SRAM_size;
 		maxlen += txdscp_sz;
-		ptmpchar = _malloc(maxlen + FWBUFF_ALIGN_SZ);
+		ptmpchar = kmalloc(maxlen + FWBUFF_ALIGN_SZ, GFP_ATOMIC);
 		if (ptmpchar == NULL)
 			return ret;
 
@@ -265,7 +257,7 @@ static u8 rtl8712_dl_fw(struct _adapter *padapter)
 		if (tmp8_a != (tmp8|BIT(2)))
 			goto exit_fail;
 
-		tmp32 = r8712_read32(padapter, TCR);
+		r8712_read32(padapter, TCR);
 
 		/* 4.polling IMEM Ready */
 		i = 100;
@@ -335,11 +327,13 @@ uint rtl8712_hal_init(struct _adapter *padapter)
 	if (rtl8712_dl_fw(padapter) != _SUCCESS)
 		return _FAIL;
 
-	printk(KERN_INFO "r8712u: 1 RCR=0x%x\n",  r8712_read32(padapter, RCR));
+	netdev_info(padapter->pnetdev, "1 RCR=0x%x\n",
+		    r8712_read32(padapter, RCR));
 	val32 = r8712_read32(padapter, RCR);
 	r8712_write32(padapter, RCR, (val32 | BIT(26))); /* Enable RX TCP
 							    Checksum offload */
-	printk(KERN_INFO "r8712u: 2 RCR=0x%x\n", r8712_read32(padapter, RCR));
+	netdev_info(padapter->pnetdev, "2 RCR=0x%x\n",
+		    r8712_read32(padapter, RCR));
 	val32 = r8712_read32(padapter, RCR);
 	r8712_write32(padapter, RCR, (val32|BIT(25))); /* Append PHY status */
 	val32 = 0;
@@ -390,10 +384,8 @@ uint rtl871x_hal_init(struct _adapter *padapter)
 	padapter->hw_init_completed = false;
 	if (padapter->halpriv.hal_bus_init == NULL)
 		return _FAIL;
-	else {
-		if (padapter->halpriv.hal_bus_init(padapter) != _SUCCESS)
-			return _FAIL;
-	}
+	if (padapter->halpriv.hal_bus_init(padapter) != _SUCCESS)
+		return _FAIL;
 	if (rtl8712_hal_init(padapter) == _SUCCESS)
 		padapter->hw_init_completed = true;
 	else {

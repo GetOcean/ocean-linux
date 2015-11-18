@@ -30,6 +30,7 @@
 #include <linux/atomic.h>
 #include <linux/kthread.h>
 #include <linux/crc32.h>
+#include <linux/ktime.h>
 
 #include "power.h"
 
@@ -101,7 +102,7 @@ struct swsusp_header {
 	unsigned int flags;	/* Flags to pass to the "boot" kernel */
 	char	orig_sig[10];
 	char	sig[10];
-} __attribute__((packed));
+} __packed;
 
 static struct swsusp_header *swsusp_header;
 
@@ -126,7 +127,7 @@ static int swsusp_extents_insert(unsigned long swap_offset)
 
 	/* Figure out where to put the new node */
 	while (*new) {
-		ext = container_of(*new, struct swsusp_extent, node);
+		ext = rb_entry(*new, struct swsusp_extent, node);
 		parent = *new;
 		if (swap_offset < ext->start) {
 			/* Try to merge */
@@ -445,17 +446,17 @@ static int save_image(struct swap_map_handle *handle,
 	int nr_pages;
 	int err2;
 	struct bio *bio;
-	struct timeval start;
-	struct timeval stop;
+	ktime_t start;
+	ktime_t stop;
 
-	printk(KERN_INFO "PM: Saving image data pages (%u pages) ...     ",
+	printk(KERN_INFO "PM: Saving image data pages (%u pages)...\n",
 		nr_to_write);
-	m = nr_to_write / 100;
+	m = nr_to_write / 10;
 	if (!m)
 		m = 1;
 	nr_pages = 0;
 	bio = NULL;
-	do_gettimeofday(&start);
+	start = ktime_get();
 	while (1) {
 		ret = snapshot_read_next(snapshot);
 		if (ret <= 0)
@@ -464,18 +465,17 @@ static int save_image(struct swap_map_handle *handle,
 		if (ret)
 			break;
 		if (!(nr_pages % m))
-			printk(KERN_CONT "\b\b\b\b%3d%%", nr_pages / m);
+			printk(KERN_INFO "PM: Image saving progress: %3d%%\n",
+			       nr_pages / m * 10);
 		nr_pages++;
 	}
 	err2 = hib_wait_on_bio_chain(&bio);
-	do_gettimeofday(&stop);
+	stop = ktime_get();
 	if (!ret)
 		ret = err2;
 	if (!ret)
-		printk(KERN_CONT "\b\b\b\bdone\n");
-	else
-		printk(KERN_CONT "\n");
-	swsusp_show_speed(&start, &stop, nr_to_write, "Wrote");
+		printk(KERN_INFO "PM: Image saving done.\n");
+	swsusp_show_speed(start, stop, nr_to_write, "Wrote");
 	return ret;
 }
 
@@ -568,7 +568,7 @@ static int lzo_compress_threadfn(void *data)
 
 /**
  * save_image_lzo - Save the suspend image data compressed with LZO.
- * @handle: Swap mam handle to use for saving the image.
+ * @handle: Swap map handle to use for saving the image.
  * @snapshot: Image to read data from.
  * @nr_to_write: Number of pages to save.
  */
@@ -581,8 +581,8 @@ static int save_image_lzo(struct swap_map_handle *handle,
 	int nr_pages;
 	int err2;
 	struct bio *bio;
-	struct timeval start;
-	struct timeval stop;
+	ktime_t start;
+	ktime_t stop;
 	size_t off;
 	unsigned thr, run_threads, nr_threads;
 	unsigned char *page = NULL;
@@ -666,22 +666,16 @@ static int save_image_lzo(struct swap_map_handle *handle,
 	 */
 	handle->reqd_free_pages = reqd_free_pages();
 
-	/*
-	 * Adjust the number of required free pages after all allocations have
-	 * been done. We don't want to run out of pages when writing.
-	 */
-	handle->reqd_free_pages = reqd_free_pages();
-
 	printk(KERN_INFO
 		"PM: Using %u thread(s) for compression.\n"
-		"PM: Compressing and saving image data (%u pages) ...     ",
+		"PM: Compressing and saving image data (%u pages)...\n",
 		nr_threads, nr_to_write);
-	m = nr_to_write / 100;
+	m = nr_to_write / 10;
 	if (!m)
 		m = 1;
 	nr_pages = 0;
 	bio = NULL;
-	do_gettimeofday(&start);
+	start = ktime_get();
 	for (;;) {
 		for (thr = 0; thr < nr_threads; thr++) {
 			for (off = 0; off < LZO_UNC_SIZE; off += PAGE_SIZE) {
@@ -696,8 +690,10 @@ static int save_image_lzo(struct swap_map_handle *handle,
 				       data_of(*snapshot), PAGE_SIZE);
 
 				if (!(nr_pages % m))
-					printk(KERN_CONT "\b\b\b\b%3d%%",
-				               nr_pages / m);
+					printk(KERN_INFO
+					       "PM: Image saving progress: "
+					       "%3d%%\n",
+				               nr_pages / m * 10);
 				nr_pages++;
 			}
 			if (!off)
@@ -764,15 +760,12 @@ static int save_image_lzo(struct swap_map_handle *handle,
 
 out_finish:
 	err2 = hib_wait_on_bio_chain(&bio);
-	do_gettimeofday(&stop);
+	stop = ktime_get();
 	if (!ret)
 		ret = err2;
-	if (!ret) {
-		printk(KERN_CONT "\b\b\b\bdone\n");
-	} else {
-		printk(KERN_CONT "\n");
-	}
-	swsusp_show_speed(&start, &stop, nr_to_write, "Wrote");
+	if (!ret)
+		printk(KERN_INFO "PM: Image saving done.\n");
+	swsusp_show_speed(start, stop, nr_to_write, "Wrote");
 out_clean:
 	if (crc) {
 		if (crc->thr)
@@ -973,20 +966,20 @@ static int load_image(struct swap_map_handle *handle,
 {
 	unsigned int m;
 	int ret = 0;
-	struct timeval start;
-	struct timeval stop;
+	ktime_t start;
+	ktime_t stop;
 	struct bio *bio;
 	int err2;
 	unsigned nr_pages;
 
-	printk(KERN_INFO "PM: Loading image data pages (%u pages) ...     ",
+	printk(KERN_INFO "PM: Loading image data pages (%u pages)...\n",
 		nr_to_read);
-	m = nr_to_read / 100;
+	m = nr_to_read / 10;
 	if (!m)
 		m = 1;
 	nr_pages = 0;
 	bio = NULL;
-	do_gettimeofday(&start);
+	start = ktime_get();
 	for ( ; ; ) {
 		ret = snapshot_write_next(snapshot);
 		if (ret <= 0)
@@ -999,21 +992,21 @@ static int load_image(struct swap_map_handle *handle,
 		if (ret)
 			break;
 		if (!(nr_pages % m))
-			printk("\b\b\b\b%3d%%", nr_pages / m);
+			printk(KERN_INFO "PM: Image loading progress: %3d%%\n",
+			       nr_pages / m * 10);
 		nr_pages++;
 	}
 	err2 = hib_wait_on_bio_chain(&bio);
-	do_gettimeofday(&stop);
+	stop = ktime_get();
 	if (!ret)
 		ret = err2;
 	if (!ret) {
-		printk("\b\b\b\bdone\n");
+		printk(KERN_INFO "PM: Image loading done.\n");
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
-	} else
-		printk("\n");
-	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
+	}
+	swsusp_show_speed(start, stop, nr_to_read, "Read");
 	return ret;
 }
 
@@ -1075,8 +1068,8 @@ static int load_image_lzo(struct swap_map_handle *handle,
 	int ret = 0;
 	int eof = 0;
 	struct bio *bio;
-	struct timeval start;
-	struct timeval stop;
+	ktime_t start;
+	ktime_t stop;
 	unsigned nr_pages;
 	size_t off;
 	unsigned i, thr, run_threads, nr_threads;
@@ -1191,14 +1184,14 @@ static int load_image_lzo(struct swap_map_handle *handle,
 
 	printk(KERN_INFO
 		"PM: Using %u thread(s) for decompression.\n"
-		"PM: Loading and decompressing image data (%u pages) ...     ",
+		"PM: Loading and decompressing image data (%u pages)...\n",
 		nr_threads, nr_to_read);
-	m = nr_to_read / 100;
+	m = nr_to_read / 10;
 	if (!m)
 		m = 1;
 	nr_pages = 0;
 	bio = NULL;
-	do_gettimeofday(&start);
+	start = ktime_get();
 
 	ret = snapshot_write_next(snapshot);
 	if (ret <= 0)
@@ -1325,7 +1318,10 @@ static int load_image_lzo(struct swap_map_handle *handle,
 				       data[thr].unc + off, PAGE_SIZE);
 
 				if (!(nr_pages % m))
-					printk("\b\b\b\b%3d%%", nr_pages / m);
+					printk(KERN_INFO
+					       "PM: Image loading progress: "
+					       "%3d%%\n",
+					       nr_pages / m * 10);
 				nr_pages++;
 
 				ret = snapshot_write_next(snapshot);
@@ -1348,9 +1344,9 @@ out_finish:
 		wait_event(crc->done, atomic_read(&crc->stop));
 		atomic_set(&crc->stop, 0);
 	}
-	do_gettimeofday(&stop);
+	stop = ktime_get();
 	if (!ret) {
-		printk("\b\b\b\bdone\n");
+		printk(KERN_INFO "PM: Image loading done.\n");
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
@@ -1363,9 +1359,8 @@ out_finish:
 				}
 			}
 		}
-	} else
-		printk("\n");
-	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
+	}
+	swsusp_show_speed(start, stop, nr_to_read, "Read");
 out_clean:
 	for (i = 0; i < ring_size; i++)
 		free_page((unsigned long)page[i]);
@@ -1380,7 +1375,7 @@ out_clean:
 				kthread_stop(data[thr].thr);
 		vfree(data);
 	}
-	if (page) vfree(page);
+	vfree(page);
 
 	return ret;
 }
@@ -1477,6 +1472,34 @@ void swsusp_close(fmode_t mode)
 
 	blkdev_put(hib_resume_bdev, mode);
 }
+
+/**
+ *      swsusp_unmark - Unmark swsusp signature in the resume device
+ */
+
+#ifdef CONFIG_SUSPEND
+int swsusp_unmark(void)
+{
+	int error;
+
+	hib_bio_read_page(swsusp_resume_block, swsusp_header, NULL);
+	if (!memcmp(HIBERNATE_SIG,swsusp_header->sig, 10)) {
+		memcpy(swsusp_header->sig,swsusp_header->orig_sig, 10);
+		error = hib_bio_write_page(swsusp_resume_block,
+					swsusp_header, NULL);
+	} else {
+		printk(KERN_ERR "PM: Cannot find swsusp signature!\n");
+		error = -ENODEV;
+	}
+
+	/*
+	 * We just returned from suspend, we don't need the image any more.
+	 */
+	free_all_swap_pages(root_swap);
+
+	return error;
+}
+#endif
 
 static int swsusp_header_init(void)
 {

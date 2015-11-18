@@ -38,11 +38,6 @@ char *disk_name(struct gendisk *hd, int partno, char *buf)
 	else if (isdigit(hd->disk_name[strlen(hd->disk_name)-1]))
 		snprintf(buf, BDEVNAME_SIZE, "%sp%d", hd->disk_name, partno);
 	else
-#ifdef CONFIG_SUNXI_NAND_COMPAT_DEV /* nanda - nandz compat names */
-	if (!strcmp(hd->disk_name, "nand") && (partno <= 'z' - 'a' + 1))
-		snprintf(buf, BDEVNAME_SIZE, "%s%c", hd->disk_name, 'a' - 1 + partno);
-	else
-#endif
 		snprintf(buf, BDEVNAME_SIZE, "%s%d", hd->disk_name, partno);
 
 	return buf;
@@ -89,7 +84,7 @@ ssize_t part_size_show(struct device *dev,
 		       struct device_attribute *attr, char *buf)
 {
 	struct hd_struct *p = dev_to_part(dev);
-	return sprintf(buf, "%llu\n",(unsigned long long)p->nr_sects);
+	return sprintf(buf, "%llu\n",(unsigned long long)part_nr_sects_read(p));
 }
 
 static ssize_t part_ro_show(struct device *dev,
@@ -222,21 +217,10 @@ static void part_release(struct device *dev)
 	kfree(p);
 }
 
-static int part_uevent(struct device *dev, struct kobj_uevent_env *env)
-{
-	struct hd_struct *part = dev_to_part(dev);
-
-	add_uevent_var(env, "PARTN=%u", part->partno);
-	if (part->info && part->info->volname[0])
-		add_uevent_var(env, "PARTNAME=%s", part->info->volname);
-	return 0;
-}
-
 struct device_type part_type = {
 	.name		= "partition",
 	.groups		= part_attr_groups,
 	.release	= part_release,
-	.uevent		= part_uevent,
 };
 
 static void delete_partition_rcu_cb(struct rcu_head *head)
@@ -310,6 +294,8 @@ struct hd_struct *add_partition(struct gendisk *disk, int partno,
 		err = -ENOMEM;
 		goto out_free;
 	}
+
+	seqcount_init(&p->nr_sects_seq);
 	pdev = part_to_dev(p);
 
 	p->start_sect = start;
@@ -330,11 +316,6 @@ struct hd_struct *add_partition(struct gendisk *disk, int partno,
 	}
 
 	dname = dev_name(ddev);
-#ifdef CONFIG_SUNXI_NAND_COMPAT_DEV
-	if (!strcmp(dname, "nand"))
-		dev_set_name(pdev, "%s%c", dname, 'a' - 1 + partno);
-	else
-#endif
 	if (isdigit(dname[strlen(dname) - 1]))
 		dev_set_name(pdev, "%sp%d", dname, partno);
 	else
@@ -437,7 +418,7 @@ int rescan_partitions(struct gendisk *disk, struct block_device *bdev)
 	int p, highest, res;
 rescan:
 	if (state && !IS_ERR(state)) {
-		kfree(state);
+		free_partitions(state);
 		state = NULL;
 	}
 
@@ -544,7 +525,7 @@ rescan:
 			md_autodetect_dev(part_to_dev(part)->devt);
 #endif
 	}
-	kfree(state);
+	free_partitions(state);
 	return 0;
 }
 

@@ -25,17 +25,17 @@
 #define GHASH_BLOCK_SIZE	16
 #define GHASH_DIGEST_SIZE	16
 
-void clmul_ghash_mul(char *dst, const be128 *shash);
+void clmul_ghash_mul(char *dst, const u128 *shash);
 
 void clmul_ghash_update(char *dst, const char *src, unsigned int srclen,
-			const be128 *shash);
+			const u128 *shash);
 
 struct ghash_async_ctx {
 	struct cryptd_ahash *cryptd_tfm;
 };
 
 struct ghash_ctx {
-	be128 shash;
+	u128 shash;
 };
 
 struct ghash_desc_ctx {
@@ -68,11 +68,11 @@ static int ghash_setkey(struct crypto_shash *tfm,
 	a = be64_to_cpu(x->a);
 	b = be64_to_cpu(x->b);
 
-	ctx->shash.a = (__be64)((b << 1) | (a >> 63));
-	ctx->shash.b = (__be64)((a << 1) | (b >> 63));
+	ctx->shash.a = (b << 1) | (a >> 63);
+	ctx->shash.b = (a << 1) | (b >> 63);
 
 	if (a >> 63)
-		ctx->shash.b ^= cpu_to_be64(0xc2);
+		ctx->shash.b ^= ((u64)0xc2) << 56;
 
 	return 0;
 }
@@ -158,7 +158,6 @@ static struct shash_alg ghash_alg = {
 		.cra_blocksize		= GHASH_BLOCK_SIZE,
 		.cra_ctxsize		= sizeof(struct ghash_ctx),
 		.cra_module		= THIS_MODULE,
-		.cra_list		= LIST_HEAD_INIT(ghash_alg.base.cra_list),
 	},
 };
 
@@ -296,7 +295,6 @@ static struct ahash_alg ghash_async_alg = {
 			.cra_blocksize		= GHASH_BLOCK_SIZE,
 			.cra_type		= &crypto_ahash_type,
 			.cra_module		= THIS_MODULE,
-			.cra_list		= LIST_HEAD_INIT(ghash_async_alg.halg.base.cra_list),
 			.cra_init		= ghash_async_init_tfm,
 			.cra_exit		= ghash_async_exit_tfm,
 		},
@@ -343,4 +341,4 @@ module_exit(ghash_pclmulqdqni_mod_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("GHASH Message Digest Algorithm, "
 		   "acclerated by PCLMULQDQ-NI");
-MODULE_ALIAS("ghash");
+MODULE_ALIAS_CRYPTO("ghash");

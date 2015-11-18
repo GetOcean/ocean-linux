@@ -13,8 +13,9 @@
  */
 
 #include <linux/ftrace.h>
-#include <linux/module.h>
 #include <linux/uaccess.h>
+#include <linux/module.h>
+#include <linux/stop_machine.h>
 
 #include <asm/cacheflush.h>
 #include <asm/opcodes.h>
@@ -34,6 +35,22 @@
 #define OLD_FTRACE_ADDR ((unsigned long) ftrace_caller_old)
 
 #define	OLD_NOP		0xe1a00000	/* mov r0, r0 */
+
+static int __ftrace_modify_code(void *data)
+{
+	int *command = data;
+
+	set_kernel_text_rw();
+	ftrace_modify_all_code(*command);
+	set_kernel_text_ro();
+
+	return 0;
+}
+
+void arch_ftrace_update_code(int command)
+{
+	stop_machine(__ftrace_modify_code, &command, NULL);
+}
 
 static unsigned long ftrace_nop_replace(struct dyn_ftrace *rec)
 {
@@ -66,7 +83,6 @@ static unsigned long adjust_address(struct dyn_ftrace *rec, unsigned long addr)
 
 int ftrace_arch_code_modify_prepare(void)
 {
-	set_kernel_text_rw();
 	set_all_modules_text_rw();
 	return 0;
 }
@@ -74,7 +90,8 @@ int ftrace_arch_code_modify_prepare(void)
 int ftrace_arch_code_modify_post_process(void)
 {
 	set_all_modules_text_ro();
-	set_kernel_text_ro();
+	/* Make sure any TLB misses during machine stop are cleared. */
+	flush_tlb_all();
 	return 0;
 }
 
@@ -171,10 +188,8 @@ int ftrace_make_nop(struct module *mod,
 	return ret;
 }
 
-int __init ftrace_dyn_arch_init(void *data)
+int __init ftrace_dyn_arch_init(void)
 {
-	*(unsigned long *)data = 0;
-
 	return 0;
 }
 #endif /* CONFIG_DYNAMIC_FTRACE */

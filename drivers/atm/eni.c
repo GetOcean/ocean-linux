@@ -356,6 +356,8 @@ static int do_rx_dma(struct atm_vcc *vcc,struct sk_buff *skb,
 	if (skb) {
 		paddr = pci_map_single(eni_dev->pci_dev,skb->data,skb->len,
 		    PCI_DMA_FROMDEVICE);
+		if (pci_dma_mapping_error(eni_dev->pci_dev, paddr))
+			goto dma_map_error;
 		ENI_PRV_PADDR(skb) = paddr;
 		if (paddr & 3)
 			printk(KERN_CRIT DEV_LABEL "(itf %d): VCI %d has "
@@ -481,6 +483,7 @@ trouble:
 	if (paddr)
 		pci_unmap_single(eni_dev->pci_dev,paddr,skb->len,
 		    PCI_DMA_FROMDEVICE);
+dma_map_error:
 	if (skb) dev_kfree_skb_irq(skb);
 	return -1;
 }
@@ -1567,7 +1570,7 @@ tx_complete++;
 /*--------------------------------- entries ---------------------------------*/
 
 
-static const char *media_name[] __devinitdata = {
+static char * const media_name[] = {
     "MMF", "SMF", "MMF", "03?", /*  0- 3 */
     "UTP", "05?", "06?", "07?", /*  4- 7 */
     "TAXI","09?", "10?", "11?", /*  8-11 */
@@ -1591,7 +1594,7 @@ static const char *media_name[] __devinitdata = {
   } })
 
 
-static int __devinit get_esi_asic(struct atm_dev *dev)
+static int get_esi_asic(struct atm_dev *dev)
 {
 	struct eni_dev *eni_dev;
 	unsigned char tonga;
@@ -1683,7 +1686,7 @@ static int __devinit get_esi_asic(struct atm_dev *dev)
 #undef GET_SEPROM
 
 
-static int __devinit get_esi_fpga(struct atm_dev *dev, void __iomem *base)
+static int get_esi_fpga(struct atm_dev *dev, void __iomem *base)
 {
 	void __iomem *mac_base;
 	int i;
@@ -1694,7 +1697,7 @@ static int __devinit get_esi_fpga(struct atm_dev *dev, void __iomem *base)
 }
 
 
-static int __devinit eni_do_init(struct atm_dev *dev)
+static int eni_do_init(struct atm_dev *dev)
 {
 	struct midway_eprom __iomem *eprom;
 	struct eni_dev *eni_dev;
@@ -1797,7 +1800,7 @@ static void eni_do_release(struct atm_dev *dev)
 	iounmap(ed->ioaddr);
 }
 
-static int __devinit eni_start(struct atm_dev *dev)
+static int eni_start(struct atm_dev *dev)
 {
 	struct eni_dev *eni_dev;
 	
@@ -2093,7 +2096,6 @@ static unsigned char eni_phy_get(struct atm_dev *dev,unsigned long addr)
 
 static int eni_proc_read(struct atm_dev *dev,loff_t *pos,char *page)
 {
-	struct hlist_node *node;
 	struct sock *s;
 	static const char *signal[] = { "LOST","unknown","okay" };
 	struct eni_dev *eni_dev = ENI_DEV(dev);
@@ -2156,7 +2158,7 @@ static int eni_proc_read(struct atm_dev *dev,loff_t *pos,char *page)
 
 		if (!tx->send) continue;
 		if (!--left) {
-			return sprintf(page,"tx[%d]:    0x%ld-0x%ld "
+			return sprintf(page, "tx[%d]:    0x%lx-0x%lx "
 			    "(%6ld bytes), rsv %d cps, shp %d cps%s\n",i,
 			    (unsigned long) (tx->send - eni_dev->ram),
 			    tx->send-eni_dev->ram+tx->words*4-1,tx->words*4,
@@ -2171,7 +2173,7 @@ static int eni_proc_read(struct atm_dev *dev,loff_t *pos,char *page)
 	for(i = 0; i < VCC_HTABLE_SIZE; ++i) {
 		struct hlist_head *head = &vcc_hash[i];
 
-		sk_for_each(s, node, head) {
+		sk_for_each(s, head) {
 			struct eni_vcc *eni_vcc;
 			int length;
 
@@ -2182,7 +2184,7 @@ static int eni_proc_read(struct atm_dev *dev,loff_t *pos,char *page)
 			if (--left) continue;
 			length = sprintf(page,"vcc %4d: ",vcc->vci);
 			if (eni_vcc->rx) {
-				length += sprintf(page+length,"0x%ld-0x%ld "
+				length += sprintf(page+length, "0x%lx-0x%lx "
 				    "(%6ld bytes)",
 				    (unsigned long) (eni_vcc->recv - eni_dev->ram),
 				    eni_vcc->recv-eni_dev->ram+eni_vcc->words*4-1,
@@ -2226,8 +2228,8 @@ static const struct atmdev_ops ops = {
 };
 
 
-static int __devinit eni_init_one(struct pci_dev *pci_dev,
-				  const struct pci_device_id *ent)
+static int eni_init_one(struct pci_dev *pci_dev,
+			const struct pci_device_id *ent)
 {
 	struct atm_dev *dev;
 	struct eni_dev *eni_dev;
@@ -2292,7 +2294,7 @@ static struct pci_device_id eni_pci_tbl[] = {
 MODULE_DEVICE_TABLE(pci,eni_pci_tbl);
 
 
-static void __devexit eni_remove_one(struct pci_dev *pdev)
+static void eni_remove_one(struct pci_dev *pdev)
 {
 	struct atm_dev *dev = pci_get_drvdata(pdev);
 	struct eni_dev *ed = ENI_DEV(dev);
@@ -2310,7 +2312,7 @@ static struct pci_driver eni_driver = {
 	.name		= DEV_LABEL,
 	.id_table	= eni_pci_tbl,
 	.probe		= eni_init_one,
-	.remove		= __devexit_p(eni_remove_one),
+	.remove		= eni_remove_one,
 };
 
 

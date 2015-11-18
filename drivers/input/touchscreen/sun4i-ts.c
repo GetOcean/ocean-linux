@@ -1,519 +1,338 @@
-/* This program is free software; you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation; either version 2 of the License, or
-* (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-*
-* Copyright (c) 2009
-*
-* ChangeLog
-*
-*
-*/
-#include <linux/interrupt.h>
-#include <linux/errno.h>
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/slab.h>
-#include <linux/input.h>
-#include <linux/device.h>
-#include <linux/platform_device.h>
+/*
+ * Allwinner sunxi resistive touchscreen controller driver
+ *
+ * Copyright (C) 2013 - 2014 Hans de Goede <hdegoede@redhat.com>
+ *
+ * The hwmon parts are based on work by Corentin LABBE which is:
+ * Copyright (C) 2013 Corentin LABBE <clabbe.montjoie@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*
+ * The sun4i-ts controller is capable of detecting a second touch, but when a
+ * second touch is present then the accuracy becomes so bad the reported touch
+ * location is not useable.
+ *
+ * The original android driver contains some complicated heuristics using the
+ * aprox. distance between the 2 touches to see if the user is making a pinch
+ * open / close movement, and then reports emulated multi-touch events around
+ * the last touch coordinate (as the dual-touch coordinates are worthless).
+ *
+ * These kinds of heuristics are just asking for trouble (and don't belong
+ * in the kernel). So this driver offers straight forward, reliable single
+ * touch functionality only.
+ */
+
+#include <linux/err.h>
+#include <linux/hwmon.h>
 #include <linux/init.h>
-#include <linux/delay.h>
-#include <linux/ioport.h>
-#include <asm/irq.h>
-#include <asm/io.h>
-#include <linux/fs.h>
-#include <asm/uaccess.h>
-#include <linux/mm.h>
+#include <linux/input.h>
+#include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/module.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
 #include <linux/slab.h>
-#include <linux/timer.h>
-#include <linux/jiffies.h>
-#include <linux/tick.h>
-#include <asm-generic/cputime.h>
-#include <mach/irqs.h>
-#include <mach/system.h>
-#include <mach/hardware.h>
-#include <plat/sys_config.h>
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-    #include <linux/pm.h>
-    #include <linux/earlysuspend.h>
-#endif
+#define TP_CTRL0		0x00
+#define TP_CTRL1		0x04
+#define TP_CTRL2		0x08
+#define TP_CTRL3		0x0c
+#define TP_INT_FIFOC		0x10
+#define TP_INT_FIFOS		0x14
+#define TP_TPR			0x18
+#define TP_CDAT			0x1c
+#define TEMP_DATA		0x20
+#define TP_DATA			0x24
 
-#define IRQ_TP                 (29)
-#define TP_BASSADDRESS         (0xf1c25000)
-#define TP_CTRL0               (0x00)
-#define TP_CTRL1               (0x04)
-#define TP_CTRL2               (0x08)
-#define TP_CTRL3               (0x0c)
-#define TP_INT_FIFOC           (0x10)
-#define TP_INT_FIFOS           (0x14)
-#define TP_TPR                 (0x18)
-#define TP_CDAT                (0x1c)
-#define TEMP_DATA              (0x20)
-#define TP_DATA                (0x24)
+/* TP_CTRL0 bits */
+#define ADC_FIRST_DLY(x)	((x) << 24) /* 8 bits */
+#define ADC_FIRST_DLY_MODE(x)	((x) << 23)
+#define ADC_CLK_SEL(x)		((x) << 22)
+#define ADC_CLK_DIV(x)		((x) << 20) /* 3 bits */
+#define FS_DIV(x)		((x) << 16) /* 4 bits */
+#define T_ACQ(x)		((x) << 0) /* 16 bits */
 
+/* TP_CTRL1 bits */
+#define STYLUS_UP_DEBOUN(x)	((x) << 12) /* 8 bits */
+#define STYLUS_UP_DEBOUN_EN(x)	((x) << 9)
+#define TOUCH_PAN_CALI_EN(x)	((x) << 6)
+#define TP_DUAL_EN(x)		((x) << 5)
+#define TP_MODE_EN(x)		((x) << 4)
+#define TP_ADC_SELECT(x)	((x) << 3)
+#define ADC_CHAN_SELECT(x)	((x) << 0)  /* 3 bits */
 
-#define ADC_FIRST_DLY          (0x1<<24)
-#define ADC_FIRST_DLY_MODE     (0x1<<23)
-#define ADC_CLK_SELECT         (0x0<<22)
-#define ADC_CLK_DIVIDER        (0x2<<20)
-//#define CLK                    (6)
-#define CLK                    (7)
-#define FS_DIV                 (CLK<<16)
-#define ACQ                    (0x3f)
-#define T_ACQ                  (ACQ)
+/* TP_CTRL2 bits */
+#define TP_SENSITIVE_ADJUST(x)	((x) << 28) /* 4 bits */
+#define TP_MODE_SELECT(x)	((x) << 26) /* 2 bits */
+#define PRE_MEA_EN(x)		((x) << 24)
+#define PRE_MEA_THRE_CNT(x)	((x) << 0) /* 24 bits */
 
-#define STYLUS_UP_DEBOUNCE     (5<<12)
-#define STYLUS_UP_DEBOUCE_EN   (1<<9)
-#define TOUCH_PAN_CALI_EN      (1<<6)
-#define TP_DUAL_EN             (1<<5)
-#define TP_MODE_EN             (1<<4)
-#define TP_ADC_SELECT          (0<<3)
-#define ADC_CHAN_SELECT        (0)
+/* TP_CTRL3 bits */
+#define FILTER_EN(x)		((x) << 2)
+#define FILTER_TYPE(x)		((x) << 0)  /* 2 bits */
 
-#define TP_SENSITIVE_ADJUST    (tp_sensitive_level<<28)       //mark by young for test angda 5" 0xc
-#define TP_MODE_SELECT         (0x0<<26)
-#define PRE_MEA_EN             (0x1<<24)
-#define PRE_MEA_THRE_CNT       (tp_press_threshold<<0)         //0x1f40
+/* TP_INT_FIFOC irq and fifo mask / control bits */
+#define TEMP_IRQ_EN(x)		((x) << 18)
+#define OVERRUN_IRQ_EN(x)	((x) << 17)
+#define DATA_IRQ_EN(x)		((x) << 16)
+#define TP_DATA_XY_CHANGE(x)	((x) << 13)
+#define FIFO_TRIG(x)		((x) << 8)  /* 5 bits */
+#define DATA_DRQ_EN(x)		((x) << 7)
+#define FIFO_FLUSH(x)		((x) << 4)
+#define TP_UP_IRQ_EN(x)		((x) << 1)
+#define TP_DOWN_IRQ_EN(x)	((x) << 0)
 
+/* TP_INT_FIFOS irq and fifo status bits */
+#define TEMP_DATA_PENDING	BIT(18)
+#define FIFO_OVERRUN_PENDING	BIT(17)
+#define FIFO_DATA_PENDING	BIT(16)
+#define TP_IDLE_FLG		BIT(2)
+#define TP_UP_PENDING		BIT(1)
+#define TP_DOWN_PENDING		BIT(0)
 
-#define FILTER_EN              (1<<2)
-#define FILTER_TYPE            (0x01<<0)
-
-#define TP_DATA_IRQ_EN         (1<<16)
-#define TP_DATA_XY_CHANGE      (tp_exchange_x_y<<13)       //tp_exchange_x_y
-#define TP_FIFO_TRIG_LEVEL     (1<<8)
-#define TP_FIFO_FLUSH          (1<<4)
-#define TP_UP_IRQ_EN           (1<<1)
-#define TP_DOWN_IRQ_EN         (1<<0)
-
-#define FIFO_DATA_PENDING      (1<<16)
-#define TP_UP_PENDING          (1<<1)
-#define TP_DOWN_PENDING        (1<<0)
+/* TP_TPR bits */
+#define TEMP_ENABLE(x)		((x) << 16)
+#define TEMP_PERIOD(x)		((x) << 0)  /* t = x * 256 * 16 / clkin */
 
 struct sun4i_ts_data {
-	struct resource *res;
+	struct device *dev;
 	struct input_dev *input;
-	void __iomem *base_addr;
-	int irq;
-	char phys[32];
-	int ignore_fifo_data;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-    struct early_suspend early_suspend;
-#endif
+	void __iomem *base;
+	unsigned int irq;
+	bool ignore_fifo_data;
+	int temp_data;
 };
 
-//config from sysconfig files.
-static int tp_press_threshold_enable = 0;
-static int tp_press_threshold = 0; //usded to adjust sensitivity of touch
-static int tp_sensitive_level = 0; //used to adjust sensitivity of pen down detection
-static int tp_exchange_x_y = 0;
-
-//停用设备
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void sun4i_ts_suspend(struct early_suspend *h)
+static void sun4i_ts_irq_handle_input(struct sun4i_ts_data *ts, u32 reg_val)
 {
-	/*int ret;
-	struct sun4i_ts_data *ts = container_of(h, struct sun4i_ts_data, early_suspend);
-    */
-    #ifdef PRINT_SUSPEND_INFO
-        printk("enter earlysuspend: sun4i_ts_suspend. \n");
-    #endif
-    writel(0,TP_BASSADDRESS + TP_CTRL1);
-	return ;
-}
-
-//重新唤醒
-static void sun4i_ts_resume(struct early_suspend *h)
-{
-	/*int ret;
-	struct sun4i_ts_data *ts = container_of(h, struct sun4i_ts_data, early_suspend);
-    */
-    #ifdef PRINT_SUSPEND_INFO
-        printk("enter laterresume: sun4i_ts_resume. \n");
-    #endif
-    writel(STYLUS_UP_DEBOUNCE|STYLUS_UP_DEBOUCE_EN|TP_MODE_EN,TP_BASSADDRESS + TP_CTRL1);
-	return ;
-}
-#else
-//停用设备
-#ifdef CONFIG_PM
-static int sun4i_ts_suspend(struct platform_device *pdev, pm_message_t state)
-{
-    #ifdef PRINT_SUSPEND_INFO
-        printk("enter: sun4i_ts_suspend. \n");
-    #endif
-
-    writel(0,TP_BASSADDRESS + TP_CTRL1);
-	return 0;
-}
-
-static int sun4i_ts_resume(struct platform_device *pdev)
-{
-    #ifdef PRINT_SUSPEND_INFO
-        printk("enter: sun4i_ts_resume. \n");
-    #endif
-
-    writel(STYLUS_UP_DEBOUNCE|STYLUS_UP_DEBOUCE_EN|TP_MODE_EN,TP_BASSADDRESS + TP_CTRL1);
-	return 0;
-}
-#endif
-
-#endif
-
-
-static int  tp_init(void)
-{
-    //      Hosc clk | clkin: clk/6 | adc sample freq: clkin / 8192 | t_acq clkin / (16 * 48)
-    //      0x0<<22 | 0x2<<20 | 7<<16 | 0x3f
-    writel(ADC_CLK_DIVIDER|FS_DIV|T_ACQ, TP_BASSADDRESS + TP_CTRL0);
-
-    //TP_CTRL2: 0xc4000000
-    if(1 == tp_press_threshold_enable){
-        writel(TP_SENSITIVE_ADJUST |TP_MODE_SELECT | PRE_MEA_EN | PRE_MEA_THRE_CNT, TP_BASSADDRESS + TP_CTRL2);
-    }
-    else{
-        writel(TP_SENSITIVE_ADJUST|TP_MODE_SELECT,TP_BASSADDRESS + TP_CTRL2);
-    }
-
-
-    //TP_CTRL3: 0x05
-    writel(FILTER_EN|FILTER_TYPE,TP_BASSADDRESS + TP_CTRL3);
-
-    #ifdef TP_TEMP_DEBUG
-        //TP_INT_FIFOC: 0x00010313
-        writel(TP_DATA_IRQ_EN|TP_FIFO_TRIG_LEVEL|TP_FIFO_FLUSH|TP_UP_IRQ_EN|0x40000, TP_BASSADDRESS + TP_INT_FIFOC);
-        writel(0x10fff, TP_BASSADDRESS + TP_TPR);
-    #else
-        //TP_INT_FIFOC: 0x00010313
-        writel(TP_DATA_IRQ_EN|TP_FIFO_TRIG_LEVEL|TP_FIFO_FLUSH|TP_UP_IRQ_EN, TP_BASSADDRESS + TP_INT_FIFOC);
-    #endif
-    //TP_CTRL1: 0x00000070 -> 0x00000030
-
-    writel(TP_DATA_XY_CHANGE|STYLUS_UP_DEBOUNCE|STYLUS_UP_DEBOUCE_EN|TP_MODE_EN,TP_BASSADDRESS + TP_CTRL1);
-
-    return (0);
-}
-
-static irqreturn_t sun4i_isr_tp(int irq, void *dev_id)
-{
-	struct sun4i_ts_data *ts_data = dev_id;
-	u32 reg_val;
 	u32 x, y;
 
-	reg_val  = readl(TP_BASSADDRESS + TP_INT_FIFOS);
-
 	if (reg_val & FIFO_DATA_PENDING) {
-		x = readl(TP_BASSADDRESS + TP_DATA);
-		y = readl(TP_BASSADDRESS + TP_DATA);
+		x = readl(ts->base + TP_DATA);
+		y = readl(ts->base + TP_DATA);
 		/* The 1st location reported after an up event is unreliable */
-		if (!ts_data->ignore_fifo_data) {
-			/* pr_err("motion: %dx%d\n", x, y); */
-			input_report_abs(ts_data->input, ABS_X, x);
-			input_report_abs(ts_data->input, ABS_Y, y);
+		if (!ts->ignore_fifo_data) {
+			input_report_abs(ts->input, ABS_X, x);
+			input_report_abs(ts->input, ABS_Y, y);
 			/*
 			 * The hardware has a separate down status bit, but
 			 * that gets set before we get the first location,
 			 * resulting in reporting a click on the old location.
 			 */
-			input_report_key(ts_data->input, BTN_TOUCH, 1);
-			input_sync(ts_data->input);
-		} else
-			ts_data->ignore_fifo_data = 0;
+			input_report_key(ts->input, BTN_TOUCH, 1);
+			input_sync(ts->input);
+		} else {
+			ts->ignore_fifo_data = false;
+		}
 	}
 
 	if (reg_val & TP_UP_PENDING) {
-		/* pr_err("up\n"); */
-		ts_data->ignore_fifo_data = 1;
-		input_report_key(ts_data->input, BTN_TOUCH, 0);
-		input_sync(ts_data->input);
+		ts->ignore_fifo_data = true;
+		input_report_key(ts->input, BTN_TOUCH, 0);
+		input_sync(ts->input);
 	}
+}
 
-        writel(reg_val, TP_BASSADDRESS + TP_INT_FIFOS);
+static irqreturn_t sun4i_ts_irq(int irq, void *dev_id)
+{
+	struct sun4i_ts_data *ts = dev_id;
+	u32 reg_val;
+
+	reg_val  = readl(ts->base + TP_INT_FIFOS);
+
+	if (reg_val & TEMP_DATA_PENDING)
+		ts->temp_data = readl(ts->base + TEMP_DATA);
+
+	if (ts->input)
+		sun4i_ts_irq_handle_input(ts, reg_val);
+
+	writel(reg_val, ts->base + TP_INT_FIFOS);
 
 	return IRQ_HANDLED;
 }
 
-static struct sun4i_ts_data *sun4i_ts_data_alloc(struct platform_device *pdev)
+static int sun4i_ts_open(struct input_dev *dev)
 {
+	struct sun4i_ts_data *ts = input_get_drvdata(dev);
 
-	struct sun4i_ts_data *ts_data = kzalloc(sizeof(*ts_data), GFP_KERNEL);
+	/* Flush, set trig level to 1, enable temp, data and up irqs */
+	writel(TEMP_IRQ_EN(1) | DATA_IRQ_EN(1) | FIFO_TRIG(1) | FIFO_FLUSH(1) |
+		TP_UP_IRQ_EN(1), ts->base + TP_INT_FIFOC);
 
-	if (!ts_data)
-		return NULL;
-
-	ts_data->input = input_allocate_device();
-	if (!ts_data->input) {
-		kfree(ts_data);
-		return NULL;
-	}
-
-
-	ts_data->input->evbit[0] =  BIT(EV_SYN) | BIT(EV_KEY) | BIT(EV_ABS);
-	set_bit(BTN_TOUCH, ts_data->input->keybit);
-
-    input_set_abs_params(ts_data->input, ABS_X, 0, 4095, 0, 0);
-    input_set_abs_params(ts_data->input, ABS_Y, 0, 4095, 0, 0);
-
-	ts_data->input->name = pdev->name;
-	ts_data->input->phys = "sun4i_ts/input0";
-	ts_data->input->id.bustype = BUS_HOST ;
-	ts_data->input->id.vendor = 0x0001;
-	ts_data->input->id.product = 0x0001;
-	ts_data->input->id.version = 0x0100;
-	ts_data->input->dev.parent = &pdev->dev;
-
-	return ts_data;
-}
-
-
-
-
-static void sun4i_ts_data_free(struct sun4i_ts_data *ts_data)
-{
-	if (!ts_data)
-		return;
-	if (ts_data->input)
-		input_free_device(ts_data->input);
-	kfree(ts_data);
-}
-
-
-static int __devinit sun4i_ts_probe(struct platform_device *pdev)
-{
-	int err =0;
-	int irq = platform_get_irq(pdev, 0);
-	struct sun4i_ts_data *ts_data;
-
-    #ifdef CONFIG_TOUCHSCREEN_SUN4I_DEBUG
-	    printk( "sun4i-ts.c: sun4i_ts_probe: start...\n");
-	#endif
-
-	ts_data = sun4i_ts_data_alloc(pdev);
-	if (!ts_data) {
-		dev_err(&pdev->dev, "Cannot allocate driver structures\n");
-		err = -ENOMEM;
-		goto err_out;
-	}
-
-	ts_data->res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!ts_data->res) {
-		err = -ENOMEM;
-		dev_err(&pdev->dev, "Can't get the MEMORY\n");
-		goto err_out1;
-	}
-
-    ts_data->base_addr = (void __iomem *)TP_BASSADDRESS;
-
-	ts_data->irq = irq;
-	err = request_irq(irq, sun4i_isr_tp,
-		IRQF_DISABLED, pdev->name, ts_data);
-	if (err) {
-		dev_err(&pdev->dev, "Cannot request keypad IRQ\n");
-		goto err_out2;
-	}
-
-	ts_data->ignore_fifo_data = 1;
-
-	platform_set_drvdata(pdev, ts_data);
-
-	//printk("Input request \n");
-	/* All went ok, so register to the input system */
-	err = input_register_device(ts_data->input);
-	if (err)
-		goto err_out3;
-
-	#ifdef CONFIG_TOUCHSCREEN_SUN4I_DEBUG
-        printk("tp init\n");
-    #endif
-
-    tp_init();
-
-    #ifdef CONFIG_TOUCHSCREEN_SUN4I_DEBUG
-	    printk( "sun4i-ts.c: sun4i_ts_probe: end\n");
-    #endif
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
-    printk("==register_early_suspend =\n");
-    ts_data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-    ts_data->early_suspend.suspend = sun4i_ts_suspend;
-    ts_data->early_suspend.resume	= sun4i_ts_resume;
-    register_early_suspend(&ts_data->early_suspend);
-#endif
-
-    return 0;
-
- err_out3:
-	if (ts_data->irq)
-		free_irq(ts_data->irq, pdev);
-err_out2:
-err_out1:
-	sun4i_ts_data_free(ts_data);
-err_out:
-    #ifdef CONFIG_TOUCHSCREEN_SUN4I_DEBUG
-	    printk( "sun4i-ts.c: sun4i_ts_probe: failed!\n");
-	#endif
-
-	return err;
-}
-
-static int __devexit sun4i_ts_remove(struct platform_device *pdev)
-{
-
-	struct sun4i_ts_data *ts_data = platform_get_drvdata(pdev);
-	#ifdef CONFIG_HAS_EARLYSUSPEND
-	    unregister_early_suspend(&ts_data->early_suspend);
-	#endif
-	input_unregister_device(ts_data->input);
-	free_irq(ts_data->irq, pdev);
-	sun4i_ts_data_free(ts_data);
-	platform_set_drvdata(pdev, NULL);
-        //cancle tasklet?
 	return 0;
 }
 
+static void sun4i_ts_close(struct input_dev *dev)
+{
+	struct sun4i_ts_data *ts = input_get_drvdata(dev);
+
+	/* Deactivate all input IRQs */
+	writel(TEMP_IRQ_EN(1), ts->base + TP_INT_FIFOC);
+}
+
+static ssize_t show_temp(struct device *dev, struct device_attribute *devattr,
+			 char *buf)
+{
+	struct sun4i_ts_data *ts = dev_get_drvdata(dev);
+
+	/* No temp_data until the first irq */
+	if (ts->temp_data == -1)
+		return -EAGAIN;
+
+	return sprintf(buf, "%d\n", (ts->temp_data - 1447) * 100);
+}
+
+static ssize_t show_temp_label(struct device *dev,
+			      struct device_attribute *devattr, char *buf)
+{
+	return sprintf(buf, "SoC temperature\n");
+}
+
+static DEVICE_ATTR(temp1_input, S_IRUGO, show_temp, NULL);
+static DEVICE_ATTR(temp1_label, S_IRUGO, show_temp_label, NULL);
+
+static struct attribute *sun4i_ts_attrs[] = {
+	&dev_attr_temp1_input.attr,
+	&dev_attr_temp1_label.attr,
+	NULL
+};
+ATTRIBUTE_GROUPS(sun4i_ts);
+
+static int sun4i_ts_probe(struct platform_device *pdev)
+{
+	struct sun4i_ts_data *ts;
+	struct device *dev = &pdev->dev;
+	struct device_node *np = dev->of_node;
+	struct device *hwmon;
+	int error;
+	bool ts_attached;
+
+	ts = devm_kzalloc(dev, sizeof(struct sun4i_ts_data), GFP_KERNEL);
+	if (!ts)
+		return -ENOMEM;
+
+	ts->dev = dev;
+	ts->ignore_fifo_data = true;
+	ts->temp_data = -1;
+
+	ts_attached = of_property_read_bool(np, "allwinner,ts-attached");
+	if (ts_attached) {
+		ts->input = devm_input_allocate_device(dev);
+		if (!ts->input)
+			return -ENOMEM;
+
+		ts->input->name = pdev->name;
+		ts->input->phys = "sun4i_ts/input0";
+		ts->input->open = sun4i_ts_open;
+		ts->input->close = sun4i_ts_close;
+		ts->input->id.bustype = BUS_HOST;
+		ts->input->id.vendor = 0x0001;
+		ts->input->id.product = 0x0001;
+		ts->input->id.version = 0x0100;
+		ts->input->evbit[0] =  BIT(EV_SYN) | BIT(EV_KEY) | BIT(EV_ABS);
+		__set_bit(BTN_TOUCH, ts->input->keybit);
+		input_set_abs_params(ts->input, ABS_X, 0, 4095, 0, 0);
+		input_set_abs_params(ts->input, ABS_Y, 0, 4095, 0, 0);
+		input_set_drvdata(ts->input, ts);
+	}
+
+	ts->base = devm_ioremap_resource(dev,
+			      platform_get_resource(pdev, IORESOURCE_MEM, 0));
+	if (IS_ERR(ts->base))
+		return PTR_ERR(ts->base);
+
+	ts->irq = platform_get_irq(pdev, 0);
+	error = devm_request_irq(dev, ts->irq, sun4i_ts_irq, 0, "sun4i-ts", ts);
+	if (error)
+		return error;
+
+	/*
+	 * Select HOSC clk, clkin = clk / 6, adc samplefreq = clkin / 8192,
+	 * t_acq = clkin / (16 * 64)
+	 */
+	writel(ADC_CLK_SEL(0) | ADC_CLK_DIV(2) | FS_DIV(7) | T_ACQ(63),
+	       ts->base + TP_CTRL0);
+
+	/*
+	 * sensitive_adjust = 15 : max, which is not all that sensitive,
+	 * tp_mode = 0 : only x and y coordinates, as we don't use dual touch
+	 */
+	writel(TP_SENSITIVE_ADJUST(15) | TP_MODE_SELECT(0),
+	       ts->base + TP_CTRL2);
+
+	/* Enable median filter, type 1 : 5/3 */
+	writel(FILTER_EN(1) | FILTER_TYPE(1), ts->base + TP_CTRL3);
+
+	/* Enable temperature measurement, period 1953 (2 seconds) */
+	writel(TEMP_ENABLE(1) | TEMP_PERIOD(1953), ts->base + TP_TPR);
+
+	/*
+	 * Set stylus up debounce to aprox 10 ms, enable debounce, and
+	 * finally enable tp mode.
+	 */
+	writel(STYLUS_UP_DEBOUN(5) | STYLUS_UP_DEBOUN_EN(1) | TP_MODE_EN(1),
+	       ts->base + TP_CTRL1);
+
+	hwmon = devm_hwmon_device_register_with_groups(ts->dev, "sun4i_ts",
+						       ts, sun4i_ts_groups);
+	if (IS_ERR(hwmon))
+		return PTR_ERR(hwmon);
+
+	writel(TEMP_IRQ_EN(1), ts->base + TP_INT_FIFOC);
+
+	if (ts_attached) {
+		error = input_register_device(ts->input);
+		if (error) {
+			writel(0, ts->base + TP_INT_FIFOC);
+			return error;
+		}
+	}
+
+	platform_set_drvdata(pdev, ts);
+	return 0;
+}
+
+static int sun4i_ts_remove(struct platform_device *pdev)
+{
+	struct sun4i_ts_data *ts = platform_get_drvdata(pdev);
+
+	/* Explicit unregister to avoid open/close changing the imask later */
+	if (ts->input)
+		input_unregister_device(ts->input);
+
+	/* Deactivate all IRQs */
+	writel(0, ts->base + TP_INT_FIFOC);
+
+	return 0;
+}
+
+static const struct of_device_id sun4i_ts_of_match[] = {
+	{ .compatible = "allwinner,sun4i-a10-ts", },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, sun4i_ts_of_match);
 
 static struct platform_driver sun4i_ts_driver = {
-	.probe		= sun4i_ts_probe,
-	.remove		= __devexit_p(sun4i_ts_remove),
-#ifdef CONFIG_HAS_EARLYSUSPEND
-
-#else
-#ifdef CONFIG_PM
-	.suspend	= sun4i_ts_suspend,
-	.resume		= sun4i_ts_resume,
-#endif
-#endif
-	.driver		= {
+	.driver = {
 		.name	= "sun4i-ts",
+		.of_match_table = of_match_ptr(sun4i_ts_of_match),
 	},
+	.probe	= sun4i_ts_probe,
+	.remove	= sun4i_ts_remove,
 };
 
+module_platform_driver(sun4i_ts_driver);
 
-static void sun4i_ts_nop_release(struct device *dev)
-{
-	/* Nothing */
-}
-
-static struct resource sun4i_ts_resource[] = {
-	{
-	.flags  = IORESOURCE_IRQ,
-	.start  = SW_INT_IRQNO_TOUCH_PANEL ,
-	.end    = SW_INT_IRQNO_TOUCH_PANEL ,
-	},
-
-	{
-	.flags	= IORESOURCE_MEM,
-	.start	= TP_BASSADDRESS,
-	.end	= TP_BASSADDRESS + 0x100-1,
-	},
-};
-
-struct platform_device sun4i_ts_device = {
-	.name		= "sun4i-ts",
-	.id		    = -1,
-	.dev = {
-		.release = sun4i_ts_nop_release,
-		},
-	.resource	= sun4i_ts_resource,
-	.num_resources	= ARRAY_SIZE(sun4i_ts_resource),
-};
-
-
-static int __init sun4i_ts_init(void)
-{
-  int device_used = 0;
-  int ret = -1;
-
-#ifdef CONFIG_TOUCHSCREEN_SUN4I_DEBUG
-	    printk("sun4i-ts.c: sun4i_ts_init: start ...\n");
-#endif
-
-	//config rtp
-	if(SCRIPT_PARSER_OK != script_parser_fetch("rtp_para", "rtp_used", &device_used, sizeof(device_used)/sizeof(int))){
-	    pr_err("sun4i_ts_init: script_parser_fetch err. \n");
-	    goto script_parser_fetch_err;
-	}
-	printk("rtp_used == %d. \n", device_used);
-	if(1 == device_used){
-
-            if(SCRIPT_PARSER_OK != script_parser_fetch("rtp_para", "rtp_press_threshold_enable", &tp_press_threshold_enable, 1)){
-                pr_err("sun4i_ts_init: script_parser_fetch err rtp_press_threshold_enable. \n");
-                goto script_parser_fetch_err;
-            }
-            printk("sun4i-ts: tp_press_threshold_enable is %d.\n", tp_press_threshold_enable);
-
-            if(0 != tp_press_threshold_enable  && 1 != tp_press_threshold_enable){
-                printk("sun4i-ts: only tp_press_threshold_enable  0 or 1  is supported. \n");
-                goto script_parser_fetch_err;
-            }
-
-            if(1 == tp_press_threshold_enable){
-                if(SCRIPT_PARSER_OK != script_parser_fetch("rtp_para", "rtp_press_threshold", &tp_press_threshold, 1)){
-                    pr_err("sun4i_ts_init: script_parser_fetch err rtp_press_threshold. \n");
-                    goto script_parser_fetch_err;
-                }
-                printk("sun4i-ts: rtp_press_threshold is %d.\n", tp_press_threshold);
-
-                if(tp_press_threshold < 0 || tp_press_threshold > 0xFFFFFF){
-                    printk("sun4i-ts: only tp_regidity_level between 0 and 0xFFFFFF  is supported. \n");
-                    goto script_parser_fetch_err;
-                }
-            }
-
-            if(SCRIPT_PARSER_OK != script_parser_fetch("rtp_para", "rtp_sensitive_level", &tp_sensitive_level, 1)){
-                pr_err("sun4i_ts_init: script_parser_fetch err rtp_sensitive_level. \n");
-                goto script_parser_fetch_err;
-            }
-            printk("sun4i-ts: rtp_sensitive_level is %d.\n", tp_sensitive_level);
-
-            if(tp_sensitive_level < 0 || tp_sensitive_level > 0xf){
-                printk("sun4i-ts: only tp_regidity_level between 0 and 0xf  is supported. \n");
-                goto script_parser_fetch_err;
-            }
-
-            if(SCRIPT_PARSER_OK != script_parser_fetch("rtp_para", "rtp_exchange_x_y_flag", &tp_exchange_x_y, 1)){
-                pr_err("sun4i_ts_init: script_parser_fetch err rtp_exchange_x_y_flag. \n");
-                goto script_parser_fetch_err;
-            }
-            printk("sun4i-ts: rtp_exchange_x_y_flag is %d.\n", tp_exchange_x_y);
-
-            if(0 != tp_exchange_x_y && 1 != tp_exchange_x_y){
-                printk("sun4i-ts: only tp_exchange_x_y==1 or  tp_exchange_x_y==0 is supported. \n");
-                goto script_parser_fetch_err;
-            }
-
-	}else{
-		goto script_parser_fetch_err;
-	}
-
-	platform_device_register(&sun4i_ts_device);
-	ret = platform_driver_register(&sun4i_ts_driver);
-
-script_parser_fetch_err:
-	return ret;
-}
-
-static void __exit sun4i_ts_exit(void)
-{
-	platform_driver_unregister(&sun4i_ts_driver);
-	platform_device_unregister(&sun4i_ts_device);
-
-}
-
-module_init(sun4i_ts_init);
-module_exit(sun4i_ts_exit);
-
-MODULE_AUTHOR("zhengdixu <@>");
-MODULE_DESCRIPTION("sun4i touchscreen driver");
+MODULE_DESCRIPTION("Allwinner sun4i resistive touchscreen controller driver");
+MODULE_AUTHOR("Hans de Goede <hdegoede@redhat.com>");
 MODULE_LICENSE("GPL");
-

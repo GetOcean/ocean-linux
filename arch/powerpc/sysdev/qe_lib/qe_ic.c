@@ -1,7 +1,7 @@
 /*
  * arch/powerpc/sysdev/qe_lib/qe_ic.c
  *
- * Copyright (C) 2006 Freescale Semicondutor, Inc.  All rights reserved.
+ * Copyright (C) 2006 Freescale Semiconductor, Inc.  All rights reserved.
  *
  * Author: Li Yang <leoli@freescale.com>
  * Based on code from Shlomi Gridish <gridish@freescale.com>
@@ -23,7 +23,6 @@
 #include <linux/sched.h>
 #include <linux/signal.h>
 #include <linux/device.h>
-#include <linux/bootmem.h>
 #include <linux/spinlock.h>
 #include <asm/irq.h>
 #include <asm/io.h>

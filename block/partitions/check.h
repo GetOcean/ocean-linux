@@ -15,12 +15,14 @@ struct parsed_partitions {
 		int flags;
 		bool has_info;
 		struct partition_meta_info info;
-	} parts[DISK_MAX_PARTS];
+	} *parts;
 	int next;
 	int limit;
 	bool access_beyond_eod;
 	char *pp_buf;
 };
+
+void free_partitions(struct parsed_partitions *state);
 
 struct parsed_partitions *
 check_partition(struct gendisk *, struct block_device *);
@@ -43,11 +45,6 @@ put_partition(struct parsed_partitions *p, int n, sector_t from, sector_t size)
 
 		p->parts[n].from = from;
 		p->parts[n].size = size;
-#ifdef CONFIG_SUNXI_NAND_COMPAT_DEV
-		if (!strcmp(p->name, "nand"))
-			snprintf(tmp, sizeof(tmp), " %s%c", p->name, 'a' - 1 + n);
-		else
-#endif
 		snprintf(tmp, sizeof(tmp), " %s%d", p->name, n);
 		strlcat(p->pp_buf, tmp, PAGE_SIZE);
 	}

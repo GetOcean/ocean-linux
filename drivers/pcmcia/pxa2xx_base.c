@@ -297,7 +297,7 @@ static int pxa2xx_drv_pcmcia_probe(struct platform_device *dev)
 	}
 
 	clk = clk_get(&dev->dev, NULL);
-	if (!clk)
+	if (IS_ERR(clk))
 		return -ENODEV;
 
 	pxa2xx_drv_pcmcia_ops(ops);
@@ -368,7 +368,6 @@ static struct platform_driver pxa2xx_pcmcia_driver = {
 	.remove		= pxa2xx_drv_pcmcia_remove,
 	.driver		= {
 		.name	= "pxa2xx-pcmcia",
-		.owner	= THIS_MODULE,
 		.pm	= &pxa2xx_drv_pcmcia_pm_ops,
 	},
 };

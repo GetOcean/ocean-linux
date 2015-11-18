@@ -60,7 +60,7 @@ MODULE_DESCRIPTION(KBUILD_MODNAME "CAN netdevice driver");
  *
  * The message objects 1..14 can be used for TX and RX while the message
  * objects 15 is optimized for RX. It has a shadow register for reliable
- * data receiption under heavy bus load. Therefore it makes sense to use
+ * data reception under heavy bus load. Therefore it makes sense to use
  * this message object for the needed use case. The frame type (EFF/SFF)
  * for the message object 15 can be defined via kernel module parameter
  * "msgobj15_eff". If not equal 0, it will receive 29-bit EFF frames,
@@ -90,7 +90,7 @@ static unsigned char cc770_obj_flags[CC770_OBJ_MAX] = {
 	[CC770_OBJ_TX] = 0,
 };
 
-static struct can_bittiming_const cc770_bittiming_const = {
+static const struct can_bittiming_const cc770_bittiming_const = {
 	.name = KBUILD_MODNAME,
 	.tseg1_min = 1,
 	.tseg1_max = 16,
@@ -695,7 +695,7 @@ static void cc770_tx_interrupt(struct net_device *dev, unsigned int o)
 	netif_wake_queue(dev);
 }
 
-irqreturn_t cc770_interrupt(int irq, void *dev_id)
+static irqreturn_t cc770_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = (struct net_device *)dev_id;
 	struct cc770_priv *priv = netdev_priv(dev);
@@ -823,6 +823,7 @@ static const struct net_device_ops cc770_netdev_ops = {
 	.ndo_open = cc770_open,
 	.ndo_stop = cc770_close,
 	.ndo_start_xmit = cc770_start_xmit,
+	.ndo_change_mtu = can_change_mtu,
 };
 
 int register_cc770dev(struct net_device *dev)

@@ -1,3 +1,5 @@
-obj-$(CONFIG_SUNXI_EMAC) += sunxi_emac.o
+#
+# Makefile for the Allwinner device drivers.
+#
 
-
+obj-$(CONFIG_SUN4I_EMAC) += sun4i-emac.o

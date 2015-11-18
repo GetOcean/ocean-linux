@@ -187,6 +187,7 @@ void enclosure_unregister(struct enclosure_device *edev)
 EXPORT_SYMBOL_GPL(enclosure_unregister);
 
 #define ENCLOSURE_NAME_SIZE	64
+#define COMPONENT_NAME_SIZE	64
 
 static void enclosure_link_name(struct enclosure_component *cdev, char *name)
 {
@@ -246,7 +247,30 @@ static void enclosure_component_release(struct device *dev)
 	put_device(dev->parent);
 }
 
-static const struct attribute_group *enclosure_groups[];
+static struct enclosure_component *
+enclosure_component_find_by_name(struct enclosure_device *edev,
+				const char *name)
+{
+	int i;
+	const char *cname;
+	struct enclosure_component *ecomp;
+
+	if (!edev || !name || !name[0])
+		return NULL;
+
+	for (i = 0; i < edev->components; i++) {
+		ecomp = &edev->component[i];
+		cname = dev_name(&ecomp->cdev);
+		if (ecomp->number != -1 &&
+		    cname && cname[0] &&
+		    !strcmp(cname, name))
+			return ecomp;
+	}
+
+	return NULL;
+}
+
+static const struct attribute_group *enclosure_component_groups[];
 
 /**
  * enclosure_component_register - add a particular component to an enclosure
@@ -269,7 +293,8 @@ enclosure_component_register(struct enclosure_device *edev,
 {
 	struct enclosure_component *ecomp;
 	struct device *cdev;
-	int err;
+	int err, i;
+	char newname[COMPONENT_NAME_SIZE];
 
 	if (number >= edev->components)
 		return ERR_PTR(-EINVAL);
@@ -283,13 +308,24 @@ enclosure_component_register(struct enclosure_device *edev,
 	ecomp->number = number;
 	cdev = &ecomp->cdev;
 	cdev->parent = get_device(&edev->edev);
-	if (name && name[0])
-		dev_set_name(cdev, "%s", name);
-	else
+
+	if (name && name[0]) {
+		/* Some hardware (e.g. enclosure in RX300 S6) has components
+		 * with non unique names. Registering duplicates in sysfs
+		 * will lead to warnings during bootup. So make the names
+		 * unique by appending consecutive numbers -1, -2, ... */
+		i = 1;
+		snprintf(newname, COMPONENT_NAME_SIZE,
+			 "%s", name);
+		while (enclosure_component_find_by_name(edev, newname))
+			snprintf(newname, COMPONENT_NAME_SIZE,
+				 "%s-%i", name, i++);
+		dev_set_name(cdev, "%s", newname);
+	} else
 		dev_set_name(cdev, "%u", number);
 
 	cdev->release = enclosure_component_release;
-	cdev->groups = enclosure_groups;
+	cdev->groups = enclosure_component_groups;
 
 	err = device_register(cdev);
 	if (err) {
@@ -372,25 +408,26 @@ EXPORT_SYMBOL_GPL(enclosure_remove_device);
  * sysfs pieces below
  */
 
-static ssize_t enclosure_show_components(struct device *cdev,
-					 struct device_attribute *attr,
-					 char *buf)
+static ssize_t components_show(struct device *cdev,
+			       struct device_attribute *attr, char *buf)
 {
 	struct enclosure_device *edev = to_enclosure_device(cdev);
 
 	return snprintf(buf, 40, "%d\n", edev->components);
 }
+static DEVICE_ATTR_RO(components);
 
-static struct device_attribute enclosure_attrs[] = {
-	__ATTR(components, S_IRUGO, enclosure_show_components, NULL),
-	__ATTR_NULL
+static struct attribute *enclosure_class_attrs[] = {
+	&dev_attr_components.attr,
+	NULL,
 };
+ATTRIBUTE_GROUPS(enclosure_class);
 
 static struct class enclosure_class = {
 	.name			= "enclosure",
 	.owner			= THIS_MODULE,
 	.dev_release		= enclosure_release,
-	.dev_attrs		= enclosure_attrs,
+	.dev_groups		= enclosure_class_groups,
 };
 
 static const char *const enclosure_status [] = {
@@ -543,15 +580,7 @@ static struct attribute *enclosure_component_attrs[] = {
 	&dev_attr_type.attr,
 	NULL
 };
-
-static struct attribute_group enclosure_group = {
-	.attrs = enclosure_component_attrs,
-};
-
-static const struct attribute_group *enclosure_groups[] = {
-	&enclosure_group,
-	NULL
-};
+ATTRIBUTE_GROUPS(enclosure_component);
 
 static int __init enclosure_init(void)
 {

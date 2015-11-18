@@ -1,4 +1,8 @@
 #include <linux/pm.h>
+#include <linux/acpi.h>
+
+struct usb_hub_descriptor;
+struct usb_dev_state;
 
 /* Functions local to drivers/usb/core/ */
 
@@ -35,7 +39,16 @@ extern char *usb_cache_string(struct usb_device *udev, int index);
 extern int usb_set_configuration(struct usb_device *dev, int configuration);
 extern int usb_choose_configuration(struct usb_device *udev);
 
-extern void usb_kick_khubd(struct usb_device *dev);
+static inline unsigned usb_get_max_power(struct usb_device *udev,
+		struct usb_host_config *c)
+{
+	/* SuperSpeed power is in 8 mA units; others are in 2 mA units */
+	unsigned mul = (udev->speed == USB_SPEED_SUPER ? 8 : 2);
+
+	return c->desc.bMaxPower * mul;
+}
+
+extern void usb_kick_hub_wq(struct usb_device *dev);
 extern int usb_match_one_id_intf(struct usb_device *dev,
 				 struct usb_host_interface *intf,
 				 const struct usb_device_id *id);
@@ -44,11 +57,8 @@ extern int usb_match_device(struct usb_device *dev,
 extern void usb_forced_unbind_intf(struct usb_interface *intf);
 extern void usb_unbind_and_rebind_marked_interfaces(struct usb_device *udev);
 
-extern int usb_hub_claim_port(struct usb_device *hdev, unsigned port,
-		void *owner);
-extern int usb_hub_release_port(struct usb_device *hdev, unsigned port,
-		void *owner);
-extern void usb_hub_release_all_ports(struct usb_device *hdev, void *owner);
+extern void usb_hub_release_all_ports(struct usb_device *hdev,
+		struct usb_dev_state *owner);
 extern bool usb_device_is_owned(struct usb_device *udev);
 
 extern int  usb_hub_init(void);
@@ -65,6 +75,14 @@ extern int usb_resume_complete(struct device *dev);
 extern int usb_port_suspend(struct usb_device *dev, pm_message_t msg);
 extern int usb_port_resume(struct usb_device *dev, pm_message_t msg);
 
+extern void usb_autosuspend_device(struct usb_device *udev);
+extern int usb_autoresume_device(struct usb_device *udev);
+extern int usb_remote_wakeup(struct usb_device *dev);
+extern int usb_runtime_suspend(struct device *dev);
+extern int usb_runtime_resume(struct device *dev);
+extern int usb_runtime_idle(struct device *dev);
+extern int usb_set_usb2_hardware_lpm(struct usb_device *udev, int enable);
+
 #else
 
 static inline int usb_port_suspend(struct usb_device *udev, pm_message_t msg)
@@ -77,27 +95,8 @@ static inline int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	return 0;
 }
 
-#endif
-
-#ifdef CONFIG_USB_SUSPEND
-
-extern void usb_autosuspend_device(struct usb_device *udev);
-extern int usb_autoresume_device(struct usb_device *udev);
-extern int usb_remote_wakeup(struct usb_device *dev);
-extern int usb_runtime_suspend(struct device *dev);
-extern int usb_runtime_resume(struct device *dev);
-extern int usb_runtime_idle(struct device *dev);
-extern int usb_set_usb2_hardware_lpm(struct usb_device *udev, int enable);
-
-#else
-
 #define usb_autosuspend_device(udev)		do {} while (0)
 static inline int usb_autoresume_device(struct usb_device *udev)
-{
-	return 0;
-}
-
-static inline int usb_remote_wakeup(struct usb_device *udev)
 {
 	return 0;
 }
@@ -106,12 +105,15 @@ static inline int usb_set_usb2_hardware_lpm(struct usb_device *udev, int enable)
 {
 	return 0;
 }
+
 #endif
 
 extern struct bus_type usb_bus_type;
+extern struct mutex usb_port_peer_mutex;
 extern struct device_type usb_device_type;
 extern struct device_type usb_if_device_type;
 extern struct device_type usb_ep_device_type;
+extern struct device_type usb_port_device_type;
 extern struct usb_device_driver usb_generic_driver;
 
 static inline int is_usb_device(const struct device *dev)
@@ -127,6 +129,11 @@ static inline int is_usb_interface(const struct device *dev)
 static inline int is_usb_endpoint(const struct device *dev)
 {
 	return dev->type == &usb_ep_device_type;
+}
+
+static inline int is_usb_port(const struct device *dev)
+{
+	return dev->type == &usb_port_device_type;
 }
 
 /* Do the same for device drivers and interface drivers. */
@@ -154,9 +161,26 @@ extern void usbfs_conn_disc_event(void);
 extern int usb_devio_init(void);
 extern void usb_devio_cleanup(void);
 
+/*
+ * Firmware specific cookie identifying a port's location. '0' == no location
+ * data available
+ */
+typedef u32 usb_port_location_t;
+
 /* internal notify stuff */
 extern void usb_notify_add_device(struct usb_device *udev);
 extern void usb_notify_remove_device(struct usb_device *udev);
 extern void usb_notify_add_bus(struct usb_bus *ubus);
 extern void usb_notify_remove_bus(struct usb_bus *ubus);
+extern void usb_hub_adjust_deviceremovable(struct usb_device *hdev,
+		struct usb_hub_descriptor *desc);
 
+#ifdef CONFIG_ACPI
+extern int usb_acpi_register(void);
+extern void usb_acpi_unregister(void);
+extern acpi_handle usb_get_hub_port_acpi_handle(struct usb_device *hdev,
+	int port1);
+#else
+static inline int usb_acpi_register(void) { return 0; };
+static inline void usb_acpi_unregister(void) { };
+#endif

@@ -118,14 +118,16 @@ int mmc_io_rw_direct(struct mmc_card *card, int write, unsigned fn,
 	return mmc_io_rw_direct_host(card->host, write, fn, addr, in, out);
 }
 
-extern int sunximmc_check_r1_ready(struct mmc_host *mmc);
 int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 	unsigned addr, int incr_addr, u8 *buf, unsigned blocks, unsigned blksz)
 {
 	struct mmc_request mrq = {NULL};
 	struct mmc_command cmd = {0};
 	struct mmc_data data = {0};
-	struct scatterlist sg;
+	struct scatterlist sg, *sg_ptr;
+	struct sg_table sgtable;
+	unsigned int nents, left_size, i;
+	unsigned int seg_size = card->host->max_seg_size;
 
 	BUG_ON(!card);
 	BUG_ON(fn > 7);
@@ -153,14 +155,35 @@ int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 	/* Code in host drivers/fwk assumes that "blocks" always is >=1 */
 	data.blocks = blocks ? blocks : 1;
 	data.flags = write ? MMC_DATA_WRITE : MMC_DATA_READ;
-	data.sg = &sg;
-	data.sg_len = 1;
 
-	sg_init_one(&sg, buf, data.blksz * data.blocks);
+	left_size = data.blksz * data.blocks;
+	nents = (left_size - 1) / seg_size + 1;
+	if (nents > 1) {
+		if (sg_alloc_table(&sgtable, nents, GFP_KERNEL))
+			return -ENOMEM;
+
+		data.sg = sgtable.sgl;
+		data.sg_len = nents;
+
+		for_each_sg(data.sg, sg_ptr, data.sg_len, i) {
+			sg_set_page(sg_ptr, virt_to_page(buf + (i * seg_size)),
+					min(seg_size, left_size),
+					offset_in_page(buf + (i * seg_size)));
+			left_size = left_size - seg_size;
+		}
+	} else {
+		data.sg = &sg;
+		data.sg_len = 1;
+
+		sg_init_one(&sg, buf, left_size);
+	}
 
 	mmc_set_data_timeout(&data, card);
 
 	mmc_wait_for_req(card->host, &mrq);
+
+	if (nents > 1)
+		sg_free_table(&sgtable);
 
 	if (cmd.error)
 		return cmd.error;
@@ -178,18 +201,6 @@ int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 			return -ERANGE;
 	}
 
-#if defined CONFIG_MMC_SUNXI || defined CONFIG_MMC_SUNXI_MODULE
-	if (write) {
-		int i = 0;
-		int r1_ready = 0;
-		do {
-			r1_ready = sunximmc_check_r1_ready(card->host);
-			i++;
-		} while (!r1_ready && i < 3000);
-		if (i > 50)
-			printk("[sdio]: busy %d !!\n", i);
-	}
-#endif
 	return 0;
 }
 

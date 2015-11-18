@@ -58,7 +58,7 @@ static int ath_wakeup_ar3k(struct tty_struct *tty)
 		return status;
 
 	/* Disable Automatic RTSCTS */
-	memcpy(&ktermios, tty->termios, sizeof(ktermios));
+	ktermios = tty->termios;
 	ktermios.c_cflag &= ~CRTSCTS;
 	tty_set_termios(tty, &ktermios);
 
@@ -74,7 +74,7 @@ static int ath_wakeup_ar3k(struct tty_struct *tty)
 
 	status = tty->driver->ops->tiocmget(tty);
 
-	/* Disable Automatic RTSCTS */
+	/* Enable Automatic RTSCTS */
 	ktermios.c_cflag |= CRTSCTS;
 	status = tty_set_termios(tty, &ktermios);
 

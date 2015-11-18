@@ -2,7 +2,7 @@
  * Copyright (C) 2005, 2006
  * Avishay Traeger (avishay@gmail.com)
  * Copyright (C) 2008, 2009
- * Boaz Harrosh <bharrosh@panasas.com>
+ * Boaz Harrosh <ooo@electrozaur.com>
  *
  * Copyrights for code taken from ext2:
  *     Copyright (C) 1992, 1993, 1994, 1995
@@ -46,7 +46,7 @@ static inline int exofs_add_nondir(struct dentry *dentry, struct inode *inode)
 }
 
 static struct dentry *exofs_lookup(struct inode *dir, struct dentry *dentry,
-				   struct nameidata *nd)
+				   unsigned int flags)
 {
 	struct inode *inode;
 	ino_t ino;
@@ -60,7 +60,7 @@ static struct dentry *exofs_lookup(struct inode *dir, struct dentry *dentry,
 }
 
 static int exofs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
-			 struct nameidata *nd)
+			 bool excl)
 {
 	struct inode *inode = exofs_new_inode(dir, mode);
 	int err = PTR_ERR(inode);

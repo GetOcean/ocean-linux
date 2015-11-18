@@ -216,7 +216,7 @@ static char *kdb_read(char *buffer, size_t bufsize)
 	int i;
 	int diag, dtab_count;
 	int key;
-	static int last_crlf;
+
 
 	diag = kdbgetintenv("DTABCOUNT", &dtab_count);
 	if (diag)
@@ -237,9 +237,6 @@ poll_again:
 		return buffer;
 	if (key != 9)
 		tab = 0;
-	if (key != 10 && key != 13)
-		last_crlf = 0;
-
 	switch (key) {
 	case 8: /* backspace */
 		if (cp > buffer) {
@@ -257,12 +254,7 @@ poll_again:
 			*cp = tmp;
 		}
 		break;
-	case 10: /* new line */
-	case 13: /* carriage return */
-		/* handle \n after \r */
-		if (last_crlf && last_crlf != key)
-			break;
-		last_crlf = key;
+	case 13: /* enter */
 		*lastchar++ = '\n';
 		*lastchar++ = '\0';
 		if (!KDB_STATE(KGDB_TRANS)) {
@@ -556,7 +548,7 @@ static int kdb_search_string(char *searched, char *searchfor)
 	return 0;
 }
 
-int vkdb_printf(const char *fmt, va_list ap)
+int vkdb_printf(enum kdb_msgsrc src, const char *fmt, va_list ap)
 {
 	int diag;
 	int linecount;
@@ -699,27 +691,31 @@ kdb_printit:
 	 * Write to all consoles.
 	 */
 	retlen = strlen(kdb_buffer);
+	cp = (char *) printk_skip_level(kdb_buffer);
 	if (!dbg_kdb_mode && kgdb_connected) {
-		gdbstub_msg_write(kdb_buffer, retlen);
+		gdbstub_msg_write(cp, retlen - (cp - kdb_buffer));
 	} else {
 		if (dbg_io_ops && !dbg_io_ops->is_console) {
-			len = retlen;
-			cp = kdb_buffer;
+			len = retlen - (cp - kdb_buffer);
+			cp2 = cp;
 			while (len--) {
-				dbg_io_ops->write_char(*cp);
-				cp++;
+				dbg_io_ops->write_char(*cp2);
+				cp2++;
 			}
 		}
 		while (c) {
-			c->write(c, kdb_buffer, retlen);
+			c->write(c, cp, retlen - (cp - kdb_buffer));
 			touch_nmi_watchdog();
 			c = c->next;
 		}
 	}
 	if (logging) {
 		saved_loglevel = console_loglevel;
-		console_loglevel = 0;
-		printk(KERN_INFO "%s", kdb_buffer);
+		console_loglevel = CONSOLE_LOGLEVEL_SILENT;
+		if (printk_get_level(kdb_buffer) || src == KDB_MSGSRC_PRINTK)
+			printk("%s", kdb_buffer);
+		else
+			pr_info("%s", kdb_buffer);
 	}
 
 	if (KDB_STATE(PAGER)) {
@@ -746,9 +742,6 @@ kdb_printit:
 	/* check for having reached the LINES number of printed lines */
 	if (kdb_nextline >= linecount) {
 		char buf1[16] = "";
-#if defined(CONFIG_SMP)
-		char buf2[32];
-#endif
 
 		/* Watch out for recursion here.  Any routine that calls
 		 * kdb_printf will come back through here.  And kdb_read
@@ -762,14 +755,6 @@ kdb_printit:
 		moreprompt = kdbgetenv("MOREPROMPT");
 		if (moreprompt == NULL)
 			moreprompt = "more> ";
-
-#if defined(CONFIG_SMP)
-		if (strchr(moreprompt, '%')) {
-			sprintf(buf2, moreprompt, get_cpu());
-			put_cpu();
-			moreprompt = buf2;
-		}
-#endif
 
 		kdb_input_flush();
 		c = console_drivers;
@@ -863,7 +848,7 @@ int kdb_printf(const char *fmt, ...)
 	int r;
 
 	va_start(ap, fmt);
-	r = vkdb_printf(fmt, ap);
+	r = vkdb_printf(KDB_MSGSRC_INTERNAL, fmt, ap);
 	va_end(ap);
 
 	return r;

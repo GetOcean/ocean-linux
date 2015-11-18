@@ -409,7 +409,7 @@ static struct pccard_operations db1x_pcmcia_operations = {
 	.set_mem_map		= au1x00_pcmcia_set_mem_map,
 };
 
-static int __devinit db1x_pcmcia_socket_probe(struct platform_device *pdev)
+static int db1x_pcmcia_socket_probe(struct platform_device *pdev)
 {
 	struct db1x_pcmcia_sock *sock;
 	struct resource *r;
@@ -559,7 +559,7 @@ out0:
 	return ret;
 }
 
-static int __devexit db1x_pcmcia_socket_remove(struct platform_device *pdev)
+static int db1x_pcmcia_socket_remove(struct platform_device *pdev)
 {
 	struct db1x_pcmcia_sock *sock = platform_get_drvdata(pdev);
 
@@ -574,10 +574,9 @@ static int __devexit db1x_pcmcia_socket_remove(struct platform_device *pdev)
 static struct platform_driver db1x_pcmcia_socket_driver = {
 	.driver	= {
 		.name	= "db1xxx_pcmcia",
-		.owner	= THIS_MODULE,
 	},
 	.probe		= db1x_pcmcia_socket_probe,
-	.remove		= __devexit_p(db1x_pcmcia_socket_remove),
+	.remove		= db1x_pcmcia_socket_remove,
 };
 
 module_platform_driver(db1x_pcmcia_socket_driver);

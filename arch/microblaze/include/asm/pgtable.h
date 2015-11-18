@@ -13,9 +13,6 @@
 
 #include <asm/setup.h>
 
-#define io_remap_pfn_range(vma, vaddr, pfn, size, prot)		\
-		remap_pfn_range(vma, vaddr, pfn, size, prot)
-
 #ifndef __ASSEMBLY__
 extern int mem_init_done;
 #endif
@@ -233,12 +230,6 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 #endif
 #ifndef _PAGE_SHARED
 #define _PAGE_SHARED	0
-#endif
-#ifndef _PAGE_HWWRITE
-#define _PAGE_HWWRITE	0
-#endif
-#ifndef _PAGE_HWEXEC
-#define _PAGE_HWEXEC	0
 #endif
 #ifndef _PAGE_EXEC
 #define _PAGE_EXEC	0
@@ -574,6 +565,7 @@ void consistent_free(size_t size, void *vaddr);
 void consistent_sync(void *vaddr, size_t size, int direction);
 void consistent_sync_page(struct page *page, unsigned long offset,
 	size_t size, int direction);
+unsigned long consistent_virt_to_pfn(void *vaddr);
 
 void setup_memory(void);
 #endif /* __ASSEMBLY__ */

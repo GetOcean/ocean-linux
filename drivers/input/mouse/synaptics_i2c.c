@@ -376,12 +376,7 @@ static void synaptics_i2c_reschedule_work(struct synaptics_i2c *touch,
 
 	spin_lock_irqsave(&touch->lock, flags);
 
-	/*
-	 * If work is already scheduled then subsequent schedules will not
-	 * change the scheduled time that's why we have to cancel it first.
-	 */
-	__cancel_delayed_work(&touch->dwork);
-	schedule_delayed_work(&touch->dwork, delay);
+	mod_delayed_work(system_wq, &touch->dwork, delay);
 
 	spin_unlock_irqrestore(&touch->lock, flags);
 }
@@ -540,7 +535,7 @@ static struct synaptics_i2c *synaptics_i2c_touch_create(struct i2c_client *clien
 	return touch;
 }
 
-static int __devinit synaptics_i2c_probe(struct i2c_client *client,
+static int synaptics_i2c_probe(struct i2c_client *client,
 			       const struct i2c_device_id *dev_id)
 {
 	int ret;
@@ -606,7 +601,7 @@ err_mem_free:
 	return ret;
 }
 
-static int __devexit synaptics_i2c_remove(struct i2c_client *client)
+static int synaptics_i2c_remove(struct i2c_client *client)
 {
 	struct synaptics_i2c *touch = i2c_get_clientdata(client);
 
@@ -619,8 +614,7 @@ static int __devexit synaptics_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
-static int synaptics_i2c_suspend(struct device *dev)
+static int __maybe_unused synaptics_i2c_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct synaptics_i2c *touch = i2c_get_clientdata(client);
@@ -633,7 +627,7 @@ static int synaptics_i2c_suspend(struct device *dev)
 	return 0;
 }
 
-static int synaptics_i2c_resume(struct device *dev)
+static int __maybe_unused synaptics_i2c_resume(struct device *dev)
 {
 	int ret;
 	struct i2c_client *client = to_i2c_client(dev);
@@ -648,7 +642,6 @@ static int synaptics_i2c_resume(struct device *dev)
 
 	return 0;
 }
-#endif
 
 static SIMPLE_DEV_PM_OPS(synaptics_i2c_pm, synaptics_i2c_suspend,
 			 synaptics_i2c_resume);
@@ -667,7 +660,7 @@ static struct i2c_driver synaptics_i2c_driver = {
 	},
 
 	.probe		= synaptics_i2c_probe,
-	.remove		= __devexit_p(synaptics_i2c_remove),
+	.remove		= synaptics_i2c_remove,
 
 	.id_table	= synaptics_i2c_id_table,
 };

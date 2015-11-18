@@ -282,8 +282,8 @@ static int sa1111_retrigger_lowirq(struct irq_data *d)
 	}
 
 	if (i == 8)
-		printk(KERN_ERR "Danger Will Robinson: failed to "
-			"re-trigger IRQ%d\n", d->irq);
+		pr_err("Danger Will Robinson: failed to re-trigger IRQ%d\n",
+		       d->irq);
 	return i == 8 ? -1 : 0;
 }
 
@@ -384,8 +384,8 @@ static int sa1111_retrigger_highirq(struct irq_data *d)
 	}
 
 	if (i == 8)
-		printk(KERN_ERR "Danger Will Robinson: failed to "
-			"re-trigger IRQ%d\n", d->irq);
+		pr_err("Danger Will Robinson: failed to re-trigger IRQ%d\n",
+		       d->irq);
 	return i == 8 ? -1 : 0;
 }
 
@@ -686,8 +686,7 @@ sa1111_init_one_child(struct sa1111 *sachip, struct resource *parent,
  *	%-EINVAL	no platform data passed
  *	%0		successful.
  */
-static int __devinit
-__sa1111_probe(struct device *me, struct resource *mem, int irq)
+static int __sa1111_probe(struct device *me, struct resource *mem, int irq)
 {
 	struct sa1111_platform_data *pd = me->platform_data;
 	struct sa1111 *sachip;
@@ -741,9 +740,8 @@ __sa1111_probe(struct device *me, struct resource *mem, int irq)
 		goto err_unmap;
 	}
 
-	printk(KERN_INFO "SA1111 Microprocessor Companion Chip: "
-		"silicon revision %lx, metal revision %lx\n",
-		(id & SKID_SIREV_MASK)>>4, (id & SKID_MTREV_MASK));
+	pr_info("SA1111 Microprocessor Companion Chip: silicon revision %lx, metal revision %lx\n",
+		(id & SKID_SIREV_MASK) >> 4, id & SKID_MTREV_MASK);
 
 	/*
 	 * We found it.  Wake the chip up, and initialise.
@@ -1011,7 +1009,7 @@ static int sa1111_resume(struct platform_device *dev)
 #define sa1111_resume  NULL
 #endif
 
-static int __devinit sa1111_probe(struct platform_device *pdev)
+static int sa1111_probe(struct platform_device *pdev)
 {
 	struct resource *mem;
 	int irq;
@@ -1058,7 +1056,6 @@ static struct platform_driver sa1111_device_driver = {
 	.resume		= sa1111_resume,
 	.driver		= {
 		.name	= "sa1111",
-		.owner	= THIS_MODULE,
 	},
 };
 

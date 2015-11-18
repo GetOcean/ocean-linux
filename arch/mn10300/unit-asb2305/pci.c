@@ -17,13 +17,13 @@
 #include <linux/init.h>
 #include <linux/ioport.h>
 #include <linux/delay.h>
+#include <linux/irq.h>
 #include <asm/io.h>
+#include <asm/irq.h>
 #include "pci-asb2305.h"
 
 unsigned int pci_probe = 1;
 
-int pcibios_last_bus = -1;
-struct pci_bus *pci_root_bus;
 struct pci_ops *pci_root_ops;
 
 /*
@@ -281,44 +281,37 @@ static int __init pci_check_direct(void)
 	return -ENODEV;
 }
 
-static int __devinit is_valid_resource(struct pci_dev *dev, int idx)
+static void pcibios_fixup_device_resources(struct pci_dev *dev)
 {
-	unsigned int i, type_mask = IORESOURCE_IO | IORESOURCE_MEM;
-	struct resource *devr = &dev->resource[idx], *busr;
+	int idx;
 
-	if (dev->bus) {
-		pci_bus_for_each_resource(dev->bus, busr, i) {
-			if (!busr || (busr->flags ^ devr->flags) & type_mask)
-				continue;
-
-			if (devr->start &&
-			    devr->start >= busr->start &&
-			    devr->end <= busr->end)
-				return 1;
-		}
-	}
-
-	return 0;
-}
-
-static void __devinit pcibios_fixup_device_resources(struct pci_dev *dev)
-{
-	struct pci_bus_region region;
-	int i;
-	int limit;
-
-	if (dev->bus->number != 0)
+	if (!dev->bus)
 		return;
 
-	limit = (dev->hdr_type == PCI_HEADER_TYPE_NORMAL) ?
-		PCI_BRIDGE_RESOURCES : PCI_NUM_RESOURCES;
+	for (idx = 0; idx < PCI_BRIDGE_RESOURCES; idx++) {
+		struct resource *r = &dev->resource[idx];
 
-	for (i = 0; i < limit; i++) {
-		if (!dev->resource[i].flags)
+		if (!r->flags || r->parent || !r->start)
 			continue;
 
-		if (is_valid_resource(dev, i))
-			pci_claim_resource(dev, i);
+		pci_claim_resource(dev, idx);
+	}
+}
+
+static void pcibios_fixup_bridge_resources(struct pci_dev *dev)
+{
+	int idx;
+
+	if (!dev->bus)
+		return;
+
+	for (idx = PCI_BRIDGE_RESOURCES; idx < PCI_NUM_RESOURCES; idx++) {
+		struct resource *r = &dev->resource[idx];
+
+		if (!r->flags || r->parent || !r->start)
+			continue;
+
+		pci_claim_bridge_resource(dev, idx);
 	}
 }
 
@@ -326,13 +319,13 @@ static void __devinit pcibios_fixup_device_resources(struct pci_dev *dev)
  *  Called after each bus is probed, but before its children
  *  are examined.
  */
-void __devinit pcibios_fixup_bus(struct pci_bus *bus)
+void pcibios_fixup_bus(struct pci_bus *bus)
 {
 	struct pci_dev *dev;
 
 	if (bus->self) {
 		pci_read_bridge_bases(bus);
-		pcibios_fixup_device_resources(bus->self);
+		pcibios_fixup_bridge_resources(bus->self);
 	}
 
 	list_for_each_entry(dev, &bus->devices, bus_list)
@@ -378,8 +371,7 @@ static int __init pcibios_init(void)
 
 	pci_add_resource_offset(&resources, &pci_ioport_resource, io_offset);
 	pci_add_resource_offset(&resources, &pci_iomem_resource, mem_offset);
-	pci_root_bus = pci_scan_root_bus(NULL, 0, &pci_direct_ampci, NULL,
-					 &resources);
+	pci_scan_root_bus(NULL, 0, &pci_direct_ampci, NULL, &resources);
 
 	pcibios_irq_init();
 	pcibios_fixup_irqs();
@@ -393,10 +385,6 @@ char *__init pcibios_setup(char *str)
 {
 	if (!strcmp(str, "off")) {
 		pci_probe = 0;
-		return NULL;
-
-	} else if (!strncmp(str, "lastbus=", 8)) {
-		pcibios_last_bus = simple_strtol(str+8, NULL, 0);
 		return NULL;
 	}
 

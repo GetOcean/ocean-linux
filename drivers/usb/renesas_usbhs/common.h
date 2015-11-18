@@ -22,8 +22,8 @@
 
 struct usbhs_priv;
 
-#include "./mod.h"
-#include "./pipe.h"
+#include "mod.h"
+#include "pipe.h"
 
 /*
  *
@@ -102,6 +102,10 @@ struct usbhs_priv;
 #define DEVADD8		0x00E0
 #define DEVADD9		0x00E2
 #define DEVADDA		0x00E4
+#define D2FIFOSEL	0x00F0	/* for R-Car Gen2 */
+#define D2FIFOCTR	0x00F2	/* for R-Car Gen2 */
+#define D3FIFOSEL	0x00F4	/* for R-Car Gen2 */
+#define D3FIFOCTR	0x00F6	/* for R-Car Gen2 */
 
 /* SYSCFG */
 #define SCKE	(1 << 10)	/* USB Module Clock Enable */
@@ -268,6 +272,9 @@ struct usbhs_priv {
 	 * fifo control
 	 */
 	struct usbhs_fifo_info fifo_info;
+
+	struct usb_phy *usb_phy;
+	struct phy *phy;
 };
 
 /*
@@ -285,6 +292,7 @@ void usbhs_bset(struct usbhs_priv *priv, u32 reg, u16 mask, u16 data);
  */
 void usbhs_sys_host_ctrl(struct usbhs_priv *priv, int enable);
 void usbhs_sys_function_ctrl(struct usbhs_priv *priv, int enable);
+void usbhs_sys_function_pullup(struct usbhs_priv *priv, int enable);
 void usbhs_sys_set_test_mode(struct usbhs_priv *priv, u16 mode);
 
 /*
